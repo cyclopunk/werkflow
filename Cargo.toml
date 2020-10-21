@@ -1,0 +1,20 @@
+[package]
+name = "werkflow"
+version = "0.1.0"
+authors = ["AdamS"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+tokio = {version = "0.2.22", features = ["full"] }
+werkflow-scripting = {path = "crates/werkflow-scripting"}
+werkflow-agents = {path = "crates/werkflow-agents"}
+reqwest = "0.10.8"
+
+[workspace]
+
+members = [
+    "crates/werkflow*"
+]
