@@ -29,3 +29,4 @@ reqwest = { version = "0.10.8" }
 werkflow-scripting = { path = "../werkflow-scripting"}
 rand = "0.7.3"
 futures = {version = "0.3.6", features = ["io-compat"]}
+anyhow = "1.0.33"

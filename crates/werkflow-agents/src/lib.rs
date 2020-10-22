@@ -1,4 +1,5 @@
-use std::{fmt::Debug, collections::HashMap};
+use std::{collections::HashMap, fmt::Debug, ops::DerefMut};
+use anyhow::{anyhow, Result};
 use std::{
     marker::PhantomData,
     sync::{
@@ -64,6 +65,7 @@ impl Debug for AgentHandle {
         f.write_fmt(format_args!("Handle for Agent"))
     }
 }
+
 impl AgentHandle {
     pub fn new() -> AgentHandle {
         AgentHandle {
@@ -75,13 +77,13 @@ impl AgentHandle {
             handle: Arc::new(RwLock::new(Agent::with_runtime(name, runtime)))
         }
     }
-    pub async fn add_feature(&mut self, handle: FeatureHandle) -> &mut AgentHandle {
+    pub async fn add_feature(&mut self, handle: FeatureHandle) -> Result<&mut AgentHandle> {
         self.handle.write().await.features.push(handle);
 
-        self
+        Ok(self)
     }
 
-    pub async fn start(&mut self) {
+    pub async fn start(&mut self) -> Result<()> {
         let mut join_handles: Vec<JoinHandle<()>> = Vec::default();
 
         for f in &self.handle.read().await.features {
@@ -96,8 +98,10 @@ impl AgentHandle {
         self.handle.write().await.state = AgentState::Ok;
 
         for jh in join_handles {
-            jh.await.expect("Error in thread");
+            jh.await.map_err(|err| anyhow!("Error in join thread. {}", err))?;
         }
+
+        Ok(())
     }
 }
 #[derive(Clone)]

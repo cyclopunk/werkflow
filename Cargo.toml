@@ -13,6 +13,8 @@ werkflow-scripting = {path = "crates/werkflow-scripting"}
 werkflow-agents = {path = "crates/werkflow-agents"}
 reqwest = "0.10.8"
 
+anyhow = "1.0.33"
+
 [workspace]
 
 members = [

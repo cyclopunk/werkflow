@@ -148,7 +148,11 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
     }
 
     pub async fn stop_agent(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        agent.handle.write().await.command(AgentCommand::Stop).await;
+        let mut agent = agent.handle.write().await;
+
+        agent.command(AgentCommand::Stop).await;
+        
+        agent.work_handles.clear();
 
         Ok(format!("The agent has been stopped."))
     }
