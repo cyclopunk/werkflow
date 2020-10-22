@@ -141,7 +141,7 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
             println!("Aquiring read on work handle");
             let wh = jh.read().await;
             println!("Got read on work handle");
-            vec.push(format!("Job: {}, status: {}",wh.id, wh.status));
+            vec.push(format!("Job: {}, status: {} result: {}",wh.id, wh.status, wh.result.as_ref().unwrap_or(&"".to_string())));
         }
 
         Ok(serde_json::to_string(&vec).unwrap())
