@@ -164,13 +164,14 @@ impl Agent {
 
         let jh = self.runtime.clone().spawn(async move {           
               println!("Running workload.");
-              workload.run::<WorkloadData>().await 
+              workload.run().await 
         });
 
         let work_handle = Arc::new(RwLock::new(WorkloadHandle {
             id: id,
             join_handle: Some(jh),
-            status: work::WorkloadStatus::Running
+            status: work::WorkloadStatus::Running,
+            ..Default::default()
         }));
 
         self.work_handles.push(work_handle.clone());
@@ -178,8 +179,10 @@ impl Agent {
         work_handle
     }
 }
-#[derive(Serialize, Deserialize, Clone, Copy)]
-pub struct WorkloadData;
+#[derive(Serialize, Deserialize, Clone)]
+pub struct WorkloadData {
+    pub result: String
+}
 pub enum AgentMessage {
     Stop,
     Start,

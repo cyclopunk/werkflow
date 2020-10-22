@@ -1,3 +1,4 @@
+
 use std::{any::type_name, fmt, sync::Arc};
 
 pub use rhai::serde::*;
@@ -44,7 +45,7 @@ impl fmt::Debug for ScriptHostError {
 
 #[derive(Debug, Clone)]
 pub struct ScriptResult {
-    underlying: Dynamic,
+    pub underlying: Dynamic,
 }
 
 impl ScriptResult {
@@ -81,8 +82,11 @@ impl ScriptHost {
         self.engine.register_result_fn(name, f);
     }
     pub async fn execute(&self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+        
+        println!("Start running script in Script Host");
         let d = self.engine.eval::<Dynamic>(&script.body);
 
+        println!("Done running script in Script Host");
         Ok(ScriptResult {
             underlying: d.unwrap(),
         })
@@ -128,6 +132,6 @@ mod tests {
             .unwrap();
 
         info!("Running test");
-        assert_eq!(User { id: 1 }, result.to());
+        assert_eq!(User { id: 1 }, result.into());
     }
 }

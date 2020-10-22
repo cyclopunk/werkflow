@@ -91,34 +91,56 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
         ))
     }
 
-    pub async fn start_job<'a>(agent: AgentHandle, script: Script) -> Result<impl warp::Reply, Infallible> {
+    pub async fn start_job<'a>(agent_handle: AgentHandle, script: Script) -> Result<impl warp::Reply, Infallible> {
         println!("Start job started");
-        let handle = agent.handle.clone();
+        let handle = agent_handle.handle.clone();
         
-        let wl_handle = handle.write().await.run(Workload::with_script(agent.clone(), script));
+        println!("Getting writeable agent handle");
+        let mut agent = handle.write().await;
+        
+        println!("Running");
+
+        let wl_handle = agent.run(Workload::with_script(agent_handle.clone(), script));
+
+        println!("Reading ID");
         let id = wl_handle.read().await.id;
-        agent.handle.read().await.runtime.spawn(async move {
-             let jh = handle.read().await;
-             
-             let handle = wl_handle.write().await;
 
-             let h = handle.join_handle.as_ref().unwrap();            
+        println!("Spawning Join Handler");
 
-             wl_handle.write().await.status = crate::work::WorkloadStatus::Complete;
+        agent.runtime.spawn(async move {              
+             let mut handle = wl_handle.write().await;
+               
+             let h = handle.join_handle.as_mut().unwrap(); 
+               
+             if let Ok(result) = h.await.unwrap() {
+                println!("Got result {}", result.result);
+                
+                handle.result = Some(result.result)
+             } else {
+                println!("Got errorin script");
+             }
+  
+             println!("Writing status");
+             handle.status = crate::work::WorkloadStatus::Complete;
         });
+
+        println!("Spawned Monitor on Join Handle");
         
         Ok(format!(
             "Started job {}", id
         ))
     }
     pub async fn list_jobs<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        let handle = agent.handle.write().await;
-        
+        println!("Aquiring read on Agent");
+        let handle = agent.handle.read().await;
+        println!("Got read on agent.");
+
         let mut vec: Vec<String> = Vec::new();
 
         for jh in &handle.work_handles {
-            let wh = jh.lock().unwrap();
-
+            println!("Aquiring read on work handle");
+            let wh = jh.read().await;
+            println!("Got read on work handle");
             vec.push(format!("Job: {}, status: {}",wh.id, wh.status));
         }
 

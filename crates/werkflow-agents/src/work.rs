@@ -1,10 +1,11 @@
 use custom_error::custom_error;
+use log::{error, trace};
 use rand::Rng;
 use serde::Deserialize;
 use serde::Serialize;
 use std::{error::Error, fmt::{self, Display}};
 use tokio::{task::JoinHandle, runtime::Runtime};
-use werkflow_scripting::{to_dynamic, Dynamic, Engine};
+use werkflow_scripting::{Dynamic, Engine, ScriptResult, to_dynamic};
 use werkflow_scripting::{EvalAltResult, RegisterResultFn, Script, ScriptHost};
 
 use crate::{AgentHandle, WorkloadData};
@@ -24,7 +25,8 @@ enum Payload {
 pub struct WorkloadHandle {
     pub id: u128,
     pub status: WorkloadStatus,
-    pub(crate) join_handle: Option<JoinHandle<Result<WorkloadData, WorkloadError>>>
+    pub(crate) join_handle: Option<JoinHandle<Result<WorkloadData, WorkloadError>>>,
+    pub result: Option<String>
 }
 
 impl PartialEq for WorkloadHandle {
@@ -37,7 +39,8 @@ impl Clone for WorkloadHandle {
         return WorkloadHandle {
             id: self.id,
             status: self.status,
-            join_handle: None
+            join_handle: None,
+            result: None
         }
     }
 }
@@ -53,75 +56,47 @@ use werkflow_scripting::{from_dynamic, Map, Position};
 
     use super::*;
 
-    pub fn get<T>(url: &str) -> Result<Dynamic, Box<EvalAltResult>>
-    where
-        for<'a> T: Serialize + Deserialize<'a>,
+    pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>>    
     {
         /// reqwest uses tokio, rhai doesn't mix with async, so I use futures to handle the tasks
         /// TODO refactor this
-        let response = executor::block_on(reqwest::Client::new()
-            .get(url)
-            .header("User-Agent", "werkflow-agent/0.1.0")
-            .send());
-        match response {
-            Ok ( r) => {
-                let text =  executor::block_on(r.text()).unwrap_or_default();
+        
+        println!("Getting {}", url);    
+        let l_url = url.clone();
 
-                if let Ok(obj) = serde_json::from_str::<T>(&text){
-                    Ok(to_dynamic(obj).unwrap())
-                } else {
-                    Err(Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Could not deserialize result"),
-                        Position::none(),
-                    )))
-                }
-            },
-            Err(err) => {
-                Err(Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Could not run post, general error: {}", err),
-                    Position::none(),
-                )))
-            }
-        }
+        let task = tokio::task::spawn_blocking(move || executor::block_on(async_get(l_url.clone())).unwrap() );
+        
+        if let Ok (d) = executor::block_on(task) {
+            return Ok(d)
+        } else {
+            Err(Box::new(EvalAltResult::ErrorRuntime(
+                format!("Could not deserialize result"),
+                Position::none(),
+            )))
+        }        
     }
 
-    pub fn post<T>(url: &str, body: Map) -> Result<Dynamic, Box<EvalAltResult>>
-    where
-        for<'a> T: Serialize + Deserialize<'a>,
+    pub fn post(url: &'static str, body: Dynamic) -> Result<Dynamic, Box<EvalAltResult>>        
     {
         
-        let body = serde_json::to_string(&from_dynamic::<T>(&body.into()).unwrap()).unwrap();
+        let l_url = url.clone();
+        
+        let task = tokio::task::spawn_blocking(move || executor::block_on(async_post(l_url, body)).unwrap() );
 
-        let response = reqwest::Client::new()
-            .post(url)
-            .body(body)
-            .header("User-Agent", "werkflow-agent/0.1.0")
-            .send();
-        match  executor::block_on(response) {
+        match  executor::block_on(task) {
             Ok ( r) => {
-                let text =  executor::block_on(r.text()).unwrap_or_default();
-
-                if let Ok(obj) = serde_json::from_str::<T>(&text){
-                    Ok(to_dynamic(obj).unwrap())
-                } else {
-                    Err(Box::new(EvalAltResult::ErrorRuntime(
-                        format!("Could not deserialize result"),
-                        Position::none(),
-                    )))
-                }
+                Ok(r)
             },
             Err(err) => {
                 Err(Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Could not run post, general error: {}", err),
+                    format!("Could not run post, general error: {}, {}", err, url),
                     Position::none(),
                 )))
             }
         }
     }
 
-    pub async fn async_get<T>(url: &str) -> Result<Dynamic, Box<dyn Error>>
-    where
-        for<'a> T: Serialize + Deserialize<'a>,
+    pub async fn async_get(url: &str) -> Result<Dynamic, Box<dyn Error>>
     {
         let response = reqwest::Client::new()
             .get(url)
@@ -130,21 +105,21 @@ use werkflow_scripting::{from_dynamic, Map, Position};
             .await?
             .text()
             .await?;
-
+            
+        Ok(to_dynamic(response).unwrap())
+        /*
         let t = serde_json::from_str::<T>(&response)?;
 
-        Ok(to_dynamic(t)?)
+        Ok(to_dynamic(t)?)*/
     }
 
     /// Convert a dynamic to a JSON string, use it as the body of a post request, and then respond with the
     /// same type
     /// This allows scripts to use maps of any time to call this:
     /// let user = post(url, #{ fieldOnT: someSetting })
-    pub async fn async_post<'de, T>(url: &str, body: Dynamic) -> Result<Dynamic, Box<dyn Error>>
-    where
-        for<'a> T: Serialize + Deserialize<'a>,
+    pub async fn async_post(url: &str, body: Dynamic) -> Result<Dynamic, Box<dyn Error>>
     {
-        let body = serde_json::to_string(&from_dynamic::<T>(&body)?)?;
+        let body = serde_json::to_string(&from_dynamic(&body)?)?;
         let response = reqwest::Client::new()
             .post(url)
             .body(body)
@@ -154,7 +129,8 @@ use werkflow_scripting::{from_dynamic, Map, Position};
             .text()
             .await?;
 
-        Ok(to_dynamic(response)?)
+        Ok(to_dynamic(response).unwrap())
+        //Ok(to_dynamic(response)?)
     }
 }
 
@@ -196,6 +172,12 @@ impl Default for WorkloadStatus {
     }
 }
 
+impl Into<WorkloadData> for ScriptResult {
+    fn into(self) -> WorkloadData {
+        self.to::<WorkloadData>()
+    }
+}
+
 impl Workload {
     pub fn new(agent_handle : AgentHandle) -> Workload {
         Workload {
@@ -211,28 +193,36 @@ impl Workload {
             agent_handle 
         }
     }
-    pub async fn run<T>(&self) -> Result<T, WorkloadError>
-    where
-        for<'de> T: Serialize + Deserialize<'de> + 'static,
+    pub async fn run(&self) -> Result<WorkloadData, WorkloadError>        
     {
         let mut sh = ScriptHost::new();
 
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
 
-        sh.engine.register_result_fn("get", http::get::<T>);
-        sh.engine.register_result_fn("post", http::post::<T>);
+        sh.engine.register_result_fn("get", http::get);
+        sh.engine.register_result_fn("post", http::post);
 
+        trace!("Executing script");
         match sh.execute(self.script.clone()).await {
-            Ok(result) => Ok(result.to()),
-            _ => Err(WorkloadError::Unknown),
+            Ok(result) => {                
+                trace!("Done executing script");
+                Ok(result.into())
+            }
+            _ => {
+                error!("Error running script");
+                Err(WorkloadError::Unknown)
+            },
         }
+
     }
 }
 
 #[cfg(test)]
 mod test {
-        use crate::Agent;
+            use futures::executor;
+
+use crate::Agent;
 
 use super::*;
     #[derive(Serialize, Deserialize, PartialEq, Default)]
@@ -244,8 +234,8 @@ use super::*;
 
     #[test]
     fn test_stuff() {
-        let mut runtime = Runtime::new().unwrap();
-        let mut agent = AgentHandle::with_runtime("Test Agent", runtime);
+        let runtime = Runtime::new().unwrap();
+        let agent = AgentHandle::with_runtime("Test Agent", runtime);
 
         let script = Script::new(
             r#"                
@@ -261,11 +251,11 @@ use super::*;
                 user
             "#,
         );
-        let workload = Workload::with_script(agent,script);
-        let workload2 = Workload::with_script(agent,script2);
+        let workload = Workload::with_script(agent.clone(),script);
+        let workload2 = Workload::with_script(agent.clone(),script2);
 
-        let user = runtime.block_on(workload.run::<User>()).unwrap();
-        let user2 = runtime.block_on(workload2.run::<User>()).unwrap();
+        let user = serde_json::from_str::<User>(&executor::block_on(workload.run()).unwrap().result).unwrap();
+        let user2 = serde_json::from_str::<User>(&executor::block_on(workload2.run()).unwrap().result).unwrap();
 
         assert_eq!(11, user.id);
         assert_eq!(1, user2.id);
