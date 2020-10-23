@@ -132,6 +132,7 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
     }
     pub async fn list_jobs<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
         println!("Aquiring read on Agent");
+        
         let handle = agent.handle.read().await;
         println!("Got read on agent.");
 
@@ -151,7 +152,7 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
         let mut agent = agent.handle.write().await;
 
         agent.command(AgentCommand::Stop).await;
-        
+
         agent.work_handles.clear();
 
         Ok(format!("The agent has been stopped."))
@@ -179,6 +180,7 @@ impl<'a> WebFeature {
         })
     }
 }
+
 impl Feature for WebFeature {
     fn init(&self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()> {
         let api = agent_status(agent.clone())

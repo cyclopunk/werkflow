@@ -1,10 +1,10 @@
+use crossbeam_channel::{Receiver, Sender};
 use std::{collections::HashMap, fmt::Debug, ops::DerefMut};
 use anyhow::{anyhow, Result};
+use comm::{AgentEvent, Hub};
 use std::{
     marker::PhantomData,
     sync::{
-        mpsc::Receiver,
-        mpsc::{self, Sender},
         Arc, Mutex,
     },
 };
@@ -26,6 +26,7 @@ impl<'a> Default for Agent {
             state: AgentState::Stopped,
             work_handles: Vec::default(),
             runtime: Arc::new(Runtime::new().unwrap()),
+            hub: Arc::new(RwLock::new(Default::default()))
         };
 
         agt
@@ -72,6 +73,16 @@ impl AgentHandle {
             handle: Arc::new(RwLock::new(Agent::default())),
         }
     }
+
+    pub async fn get_channel(&self, name: &str) -> (Receiver<AgentEvent>, Sender<AgentEvent>){
+        let agent = self.handle.read().await;
+
+        let chan = agent.hub.clone().write().await.get_or_create(name);
+
+        drop(agent);
+
+        (chan.receiver, chan.sender)
+    }
     pub fn with_runtime(name: &str, runtime: Runtime) -> AgentHandle {
         AgentHandle {
             handle: Arc::new(RwLock::new(Agent::with_runtime(name, runtime)))
@@ -84,16 +95,37 @@ impl AgentHandle {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let mut join_handles: Vec<JoinHandle<()>> = Vec::default();
+        let mut join_handles: Vec<JoinHandle<()>> = Vec::default();            
 
-        for f in &self.handle.read().await.features {
-            println!("Starting {}", f.handle.read().await.name());
+        let agent = self.handle.read().await;  
+        
+        for f in &agent.features.clone() {
+            let feature_name =  f.handle.read().await.name();
+            println!("Starting {}", feature_name);
+            
+            let channels = self.get_channel("work").await; 
 
-            let rt_handle = self.handle.read().await.runtime.handle().clone();
+            agent.runtime.spawn(async move {                
+
+                loop {
+                    let message = channels.0
+                        .recv()
+                        .map_err(|err| anyhow!("Error receiving message: {}", err));
+
+                    if let Ok(message) = message {
+                        println!("Received Agent Event {}", message);
+                    }
+                }
+            });
+
+            let rt_handle = agent.runtime.handle().clone();
 
             let jh: JoinHandle<()> = f.handle.write().await.init(self.clone(), &rt_handle);
-            join_handles.push(jh);
+            
+            join_handles.push(jh);        
         }
+        
+        drop(agent);
 
         self.handle.write().await.state = AgentState::Ok;
 
@@ -124,6 +156,7 @@ pub struct Agent {
     runtime: Arc<Runtime>,
     features: Vec<FeatureHandle>,
     state: AgentState,
+    hub: Arc<RwLock<Hub>>,
     work_handles: Vec<Arc<RwLock<WorkloadHandle>>>
 }
 
@@ -183,7 +216,7 @@ impl Agent {
         work_handle
     }
 }
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorkloadData {
     pub result: String
 }

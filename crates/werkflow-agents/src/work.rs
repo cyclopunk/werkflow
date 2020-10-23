@@ -7,8 +7,8 @@ use std::{error::Error, fmt::{self, Display}};
 use tokio::{task::JoinHandle, runtime::Runtime};
 use werkflow_scripting::{Dynamic, Engine, ScriptResult, to_dynamic};
 use werkflow_scripting::{EvalAltResult, RegisterResultFn, Script, ScriptHost};
-
-use crate::{AgentHandle, WorkloadData};
+use anyhow::anyhow;
+use crate::{comm::AgentEvent, AgentHandle, WorkloadData};
 
 custom_error! {pub WorkloadError
     CouldNotComplete      = "Could Not Complete Error",
@@ -137,7 +137,7 @@ use werkflow_scripting::{from_dynamic, Map, Position};
 #[derive(Clone, Debug)]
 pub struct Workload {
     pub id: u128,
-    script: Script,
+    pub script: Script,
     agent_handle: AgentHandle
 }
 
@@ -193,10 +193,19 @@ impl Workload {
             agent_handle 
         }
     }
+    
     pub async fn run(&self) -> Result<WorkloadData, WorkloadError>        
     {
         let mut sh = ScriptHost::new();
 
+        {
+            let agent = self.agent_handle.handle.read().await;
+            
+            let channel = agent.hub.write().await.get_or_create("work");
+
+            let s = channel.sender.send(AgentEvent::WorkStarted(self.clone()))
+                .map_err(|err| anyhow!("{}", err));
+        }
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
 

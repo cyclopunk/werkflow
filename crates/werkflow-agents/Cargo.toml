@@ -30,3 +30,4 @@ werkflow-scripting = { path = "../werkflow-scripting"}
 rand = "0.7.3"
 futures = {version = "0.3.6", features = ["io-compat"]}
 anyhow = "1.0.33"
+crossbeam-channel = "0.5.0"
