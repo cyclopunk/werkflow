@@ -15,7 +15,7 @@ use lazy_static::*;
 
 type ArcAgent = Arc<RwLock<Agent>>;
 
-use crate::{Agent, comm::AgentEvent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
+use crate::{Agent, AgentHandle, threads::AsyncRunner, Feature, FeatureConfig, FeatureHandle, comm::AgentEvent};
 
 use self::filters::agent_status;
 
@@ -94,39 +94,35 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
     }
 
     pub async fn start_job<'a>(agent_handle: AgentHandle, script: Script) -> Result<impl warp::Reply, Infallible> {
-        println!("Start job started");
         let handle = agent_handle.handle.clone();
         
-        println!("Getting writeable agent handle");
         let mut agent = handle.write().await;
-        
-        println!("Running");
 
         let wl_handle = agent.run(Workload::with_script(agent_handle.clone(), script));
 
-        println!("Reading ID");
         let id = wl_handle.read().await.id;
-
-        println!("Spawning Join Handler");
 
         agent.runtime.spawn(async move {              
              let mut handle = wl_handle.write().await;
                
-             let h = handle.join_handle.as_mut().unwrap(); 
-               
-             if let Ok(result) = h.await.unwrap() {
-                println!("Got result {}", result.result);
-                
-                handle.result = Some(result.result)
-             } else {
-                println!("Got errorin script");
+             if let Some(h) = handle.join_handle.take() {                 
+                match h.await.map_err(|err| anyhow!("Could not join job thread. {}", err)).unwrap() {
+                    Ok(result) => {                    
+                        handle.result = Some(result.result);
+                    }
+                    Err(err) => {
+                        anyhow!("Workload error thrown: {}", err);
+                    }
+                } 
+
+                handle.status = crate::work::WorkloadStatus::Complete;
              }
-  
-             println!("Writing status");
-             handle.status = crate::work::WorkloadStatus::Complete;
+             drop(handle);
         });
 
         println!("Spawned Monitor on Join Handle");
+
+        drop(agent);
         
         Ok(format!(
             "Started job {}", id
@@ -173,41 +169,25 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
 
 pub struct WebFeature {
     config: FeatureConfig,
-    shutdown: Option<Sender<()>>
+    shutdown: Option<Sender<()>>,
+    agent: Option<AgentHandle>
 }
 
 impl<'a> WebFeature {
     pub fn new(config: FeatureConfig) -> FeatureHandle {
         FeatureHandle::new(WebFeature {
             config: config.clone(),
-            shutdown: None
+            shutdown: None,
+            agent: None
         })
     }
 }
 
 impl Feature for WebFeature {
-    fn init(&mut self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()> {
-        let api = agent_status(agent.clone())
-            .or(filters::stop_agent(agent.clone()))
-            .or(filters::start_agent(agent.clone()))
-            .or(filters::start_job(agent.clone()))
-            .or(filters::list_jobs(agent.clone()));
-
-        let server = warp::serve(api);
-        let (tx,rx) = oneshot::channel();
+    fn init(&mut self, agent: AgentHandle) {
         
-        self.shutdown = Some(tx);
-
-        let (addr, srv) = server.bind_with_graceful_shutdown((self.config.bind_address, self.config.bind_port), async move {   
-            println!("Waiting for Shutdown");         
-            rx.await.ok();
-            println!("Got shutdown!");
-        });
-
-        println!("Spawning Server");
-        let jh = runtime.spawn(srv);
-        println!("Done spawning server");        
-        jh
+        self.agent = Some(agent.clone());
+        
     }
 
     fn name(&self) -> String {
@@ -216,7 +196,31 @@ impl Feature for WebFeature {
     
     fn on_event(&mut self, event: AgentEvent) { 
         match event {
-            AgentEvent::Started => {}
+            AgentEvent::Started => {
+                println!("Got agent started event");
+            let agent = self.agent.clone().unwrap();
+
+            let api = agent_status(agent.clone())
+                .or(filters::stop_agent(agent.clone()))
+                .or(filters::start_agent(agent.clone()))
+                .or(filters::start_job(agent.clone()))
+                .or(filters::list_jobs(agent.clone()));
+
+                let server = warp::serve(api);
+                let (tx,rx) = oneshot::channel();
+                
+                self.shutdown = Some(tx);
+
+                let (_, srv) = server.bind_with_graceful_shutdown((self.config.bind_address, self.config.bind_port), async move {   
+                    println!("Waiting for Shutdown");         
+                    rx.await.ok();
+                    println!("Got shutdown!");
+                });
+
+                agent.with_read(|f| {
+                    f.runtime.spawn(srv);
+                });                
+            }
             AgentEvent::Stopped => {
                 if let Some(signal) = self.shutdown.take() {
                     println!("Stopping the web service");

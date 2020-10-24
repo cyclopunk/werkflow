@@ -1,3 +1,4 @@
+use tokio::sync::RwLockWriteGuard;
 use crossbeam_channel::{Receiver, Sender};
 use std::{collections::HashMap, fmt::Debug, ops::DerefMut};
 use anyhow::{anyhow, Result};
@@ -10,13 +11,14 @@ use std::{
 };
 
 use log::info;
-use tokio::{runtime::Runtime, sync::RwLock, task::JoinHandle};
+use tokio::{runtime::Runtime, sync::RwLock, task::JoinHandle, sync::RwLockReadGuard};
 use werkflow_scripting::{Dynamic, Script};
 use work::{Workload, WorkloadHandle};
 use serde::{Serialize, Deserialize};
 pub mod comm;
 pub mod web;
 pub mod work;
+pub mod threads;
 
 impl<'a> Default for Agent {
     fn default() -> Agent {
@@ -59,6 +61,7 @@ pub struct FeatureConfig {
 #[derive(Clone)]
 pub struct AgentHandle {
     pub handle: Arc<RwLock<Agent>>,
+    pub signal: Option<Sender<()>>
 }
 
 impl Debug for AgentHandle {
@@ -71,9 +74,29 @@ impl AgentHandle {
     pub fn new() -> AgentHandle {
         AgentHandle {
             handle: Arc::new(RwLock::new(Agent::default())),
+            signal:None
         }
     }
 
+    pub fn with_read<F>(&self, f: F) where F : FnOnce(&RwLockReadGuard<Agent>) + Sync + Send + 'static {
+        let handle = self.handle.clone();
+
+        let _ = futures::executor::block_on(tokio::task::spawn_blocking( move || {             
+            let y = futures::executor::block_on(handle.read());
+            f(&y);
+            drop(y);
+        } ));
+    }
+
+    pub fn with_write<F>(&self, f: F) where F : FnOnce(&RwLockWriteGuard<Agent>) + Sync + Send + 'static {
+        let handle = self.handle.clone();
+
+        let _ = futures::executor::block_on(tokio::task::spawn_blocking( move || {             
+            let y = futures::executor::block_on(handle.write());
+            f(&y);
+            drop(y);
+        } ));
+    }
     pub async fn get_channel(&self, name: &str) -> (Receiver<AgentEvent>, Sender<AgentEvent>){
         let agent = self.handle.read().await;
 
@@ -85,7 +108,8 @@ impl AgentHandle {
     }
     pub fn with_runtime(name: &str, runtime: Runtime) -> AgentHandle {
         AgentHandle {
-            handle: Arc::new(RwLock::new(Agent::with_runtime(name, runtime)))
+            handle: Arc::new(RwLock::new(Agent::with_runtime(name, runtime))),
+            signal: None
         }
     }
     pub async fn add_feature(&mut self, handle: FeatureHandle) -> Result<&mut AgentHandle> {
@@ -94,22 +118,22 @@ impl AgentHandle {
         Ok(self)
     }
 
-    pub async fn start(&self) -> Result<()> {
-        let mut join_handles: Vec<JoinHandle<()>> = Vec::default();            
-
+    pub async fn start(&mut self) -> Receiver<()> {        
         let agent = self.handle.read().await;  
         
         for f in &agent.features {
             let feature_name =  f.handle.read().await.name();
             println!("Starting {}", feature_name);
             
-            let channels = self.get_channel("work").await; 
+            let (rx,tx) = self.get_channel("work").await; 
             let feature_handle = f.handle.clone();
+
+            f.handle.write().await.init(self.clone());    
 
             agent.runtime.spawn(async move {                
 
                 loop {
-                    let message = channels.0
+                    let message = rx
                         .recv()
                         .map_err(|err| anyhow!("Error receiving message: {}", err));
 
@@ -121,22 +145,20 @@ impl AgentHandle {
                 }
             });
 
-            let rt_handle = agent.runtime.handle().clone();
-
-            let jh: JoinHandle<()> = f.handle.write().await.init(self.clone(), &rt_handle);
-            
-            join_handles.push(jh);        
+            let _ = tx.send(AgentEvent::Started)
+                .map_err(|err|  anyhow!("Error sending Agent Start event to {}: {}", feature_name,err)).unwrap();
+                
         }
         
         drop(agent);
 
         self.handle.write().await.state = AgentState::Ok;
 
-        for jh in join_handles {
-            jh.await.map_err(|err| anyhow!("Error in join thread. {}", err))?;
-        }
+        let (rx, tx) = crossbeam_channel::bounded::<()>(1);
 
-        Ok(())
+        self.signal = Some(rx);
+
+        tx
     }
 }
 #[derive(Clone)]
@@ -186,6 +208,7 @@ impl Agent {
         match cmd {
             AgentCommand::Start => {
                 self.state = AgentState::Ok;
+                let _ = self.hub.write().await.get_or_create("work").sender.send(AgentEvent::Started);
             }
             AgentCommand::Schedule(_, _) => {}
             AgentCommand::Stop => {
@@ -232,7 +255,7 @@ pub enum AgentMessage {
 
 pub trait Feature: Send + Sync {
     //type Feature;
-    fn init(&mut self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()>;
+    fn init(&mut self, agent: AgentHandle);
     fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;
 }
