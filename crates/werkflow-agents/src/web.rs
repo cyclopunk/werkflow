@@ -1,9 +1,11 @@
+use std::sync::Mutex;
 use std::{convert::Infallible, marker::PhantomData, sync::RwLockWriteGuard};
 
 use std::{cell::RefCell, sync::Arc};
-use tokio::sync::RwLock;
+use anyhow::anyhow;
+use tokio::sync::{RwLock, oneshot::{self, Receiver, Sender}};
 use tokio::{runtime::Runtime, task::JoinHandle};
-
+use futures::future::TryFutureExt;
 //use handlebars::Handlebars;
 
 use config::Config;
@@ -13,7 +15,7 @@ use lazy_static::*;
 
 type ArcAgent = Arc<RwLock<Agent>>;
 
-use crate::{Agent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
+use crate::{Agent, comm::AgentEvent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
 
 use self::filters::agent_status;
 
@@ -171,18 +173,20 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
 
 pub struct WebFeature {
     config: FeatureConfig,
+    shutdown: Option<Sender<()>>
 }
 
 impl<'a> WebFeature {
     pub fn new(config: FeatureConfig) -> FeatureHandle {
         FeatureHandle::new(WebFeature {
             config: config.clone(),
+            shutdown: None
         })
     }
 }
 
 impl Feature for WebFeature {
-    fn init(&self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()> {
+    fn init(&mut self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()> {
         let api = agent_status(agent.clone())
             .or(filters::stop_agent(agent.clone()))
             .or(filters::start_agent(agent.clone()))
@@ -190,14 +194,40 @@ impl Feature for WebFeature {
             .or(filters::list_jobs(agent.clone()));
 
         let server = warp::serve(api);
+        let (tx,rx) = oneshot::channel();
+        
+        self.shutdown = Some(tx);
+
+        let (addr, srv) = server.bind_with_graceful_shutdown((self.config.bind_address, self.config.bind_port), async move {   
+            println!("Waiting for Shutdown");         
+            rx.await.ok();
+            println!("Got shutdown!");
+        });
+
         println!("Spawning Server");
-        let jh = runtime.spawn(server.bind((self.config.bind_address, self.config.bind_port)));
-        println!("Done spawning server");
+        let jh = runtime.spawn(srv);
+        println!("Done spawning server");        
         jh
     }
 
     fn name(&self) -> String {
         return format!("Web Feature (running on port {})", self.config.bind_port).to_string();
+    }
+    
+    fn on_event(&mut self, event: AgentEvent) { 
+        match event {
+            AgentEvent::Started => {}
+            AgentEvent::Stopped => {
+                if let Some(signal) = self.shutdown.take() {
+                    println!("Stopping the web service");
+                    let _ = signal.send(()).map_err(|err| anyhow!("Error sending signal to web service"));
+                }
+            }
+            AgentEvent::PayloadReceived(_) => {}
+            AgentEvent::WorkStarted(_) => {}
+            AgentEvent::WorkErrored(_) => {}
+            AgentEvent::WorkComplete(_) => {}
+        }
     }
 }
 

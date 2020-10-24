@@ -203,7 +203,7 @@ impl Workload {
             
             let channel = agent.hub.write().await.get_or_create("work");
 
-            let s = channel.sender.send(AgentEvent::WorkStarted(self.clone()))
+            let _ = channel.sender.send(AgentEvent::WorkStarted(self.clone()))
                 .map_err(|err| anyhow!("{}", err));
         }
         // Would like to refactor this so types can be infered from use, maybe a proc macro

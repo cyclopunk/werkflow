@@ -94,16 +94,17 @@ impl AgentHandle {
         Ok(self)
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub async fn start(&self) -> Result<()> {
         let mut join_handles: Vec<JoinHandle<()>> = Vec::default();            
 
         let agent = self.handle.read().await;  
         
-        for f in &agent.features.clone() {
+        for f in &agent.features {
             let feature_name =  f.handle.read().await.name();
             println!("Starting {}", feature_name);
             
             let channels = self.get_channel("work").await; 
+            let feature_handle = f.handle.clone();
 
             agent.runtime.spawn(async move {                
 
@@ -112,8 +113,10 @@ impl AgentHandle {
                         .recv()
                         .map_err(|err| anyhow!("Error receiving message: {}", err));
 
-                    if let Ok(message) = message {
-                        println!("Received Agent Event {}", message);
+                    if let Ok(message) = message {   
+                        println!("Writing event to feature");                                         
+                        feature_handle.write().await.on_event(message.clone());                       
+                        println!("Done writing event to feature");                       
                     }
                 }
             });
@@ -187,6 +190,7 @@ impl Agent {
             AgentCommand::Schedule(_, _) => {}
             AgentCommand::Stop => {
                 self.state = AgentState::Stopped;
+                let _ = self.hub.write().await.get_or_create("work").sender.send(AgentEvent::Stopped);
             }
         }
     }
@@ -228,6 +232,7 @@ pub enum AgentMessage {
 
 pub trait Feature: Send + Sync {
     //type Feature;
-    fn init(&self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()>;
+    fn init(&mut self, agent: AgentHandle, runtime: &tokio::runtime::Handle) -> JoinHandle<()>;
+    fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;
 }

@@ -4,6 +4,7 @@ use crate::{AgentHandle, WorkloadData, work::{Workload, WorkloadHandle}};
 use anyhow::Error;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
+#[derive(Clone)]
 pub enum AgentEvent {
     Started,
     Stopped,
