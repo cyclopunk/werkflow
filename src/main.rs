@@ -6,7 +6,7 @@ fn main() -> Result<()>{
     let runtime = Runtime::new().unwrap();
     let handle = runtime.handle().clone();
 
-    let mut agent = AgentHandle::with_runtime("Default Agent", runtime);
+    let mut agent = AgentHandle::new_runtime("Default Agent", runtime);
 
     handle.block_on(async move {
         Ok(agent

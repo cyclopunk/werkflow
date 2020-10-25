@@ -1,6 +1,6 @@
 use tokio::sync::RwLockWriteGuard;
 use crossbeam_channel::{Receiver, Sender};
-use std::{collections::HashMap, fmt::Debug, ops::DerefMut};
+use std::{collections::HashMap, fmt::Debug};
 use anyhow::{anyhow, Result};
 use comm::{AgentEvent, Hub};
 use std::{
@@ -10,9 +10,9 @@ use std::{
     },
 };
 
-use log::info;
-use tokio::{runtime::Runtime, sync::RwLock, task::JoinHandle, sync::RwLockReadGuard};
-use werkflow_scripting::{Dynamic, Script};
+
+use tokio::{runtime::Runtime, sync::RwLock, sync::RwLockReadGuard};
+
 use work::{Workload, WorkloadHandle};
 use serde::{Serialize, Deserialize};
 pub mod comm;
@@ -78,23 +78,26 @@ impl AgentHandle {
         }
     }
 
-    pub fn with_read<F>(&self, f: F) where F : FnOnce(&RwLockReadGuard<Agent>) + Sync + Send + 'static {
+    pub fn with_read<F>(&self, closure: F) where F : FnOnce(&RwLockReadGuard<Agent>) + Sync + Send + 'static {
         let handle = self.handle.clone();
 
-        let _ = futures::executor::block_on(tokio::task::spawn_blocking( move || {             
-            let y = futures::executor::block_on(handle.read());
-            f(&y);
-            drop(y);
+        let _ = async_std::task::block_on(tokio::task::spawn_blocking( move || {             
+            let agent =async_std::task::block_on(handle.read());
+            closure(&agent);
+            drop(agent);
         } ));
     }
 
-    pub fn with_write<F>(&self, f: F) where F : FnOnce(&RwLockWriteGuard<Agent>) + Sync + Send + 'static {
+    /// Run a closure with write access to the agent.
+    /// This function can be used in a non-async context, futures:executor::block_on isn't friendly with tokio it seems.
+    /// So I've had to wrap it into a spawn_blocking. Ugly, there's probably a better way, and will be investigating if there.
+    pub fn with_write<F>(&mut self, closure: F) where F : FnOnce(&mut RwLockWriteGuard<Agent>) + Sync + Send + 'static {
         let handle = self.handle.clone();
 
-        let _ = futures::executor::block_on(tokio::task::spawn_blocking( move || {             
-            let y = futures::executor::block_on(handle.write());
-            f(&y);
-            drop(y);
+        let _ = async_std::task::block_on(tokio::task::spawn_blocking( move || {             
+            let mut agent =async_std::task::block_on(handle.write());
+            closure(&mut agent);
+            drop(agent);
         } ));
     }
     pub async fn get_channel(&self, name: &str) -> (Receiver<AgentEvent>, Sender<AgentEvent>){
@@ -106,9 +109,9 @@ impl AgentHandle {
 
         (chan.receiver, chan.sender)
     }
-    pub fn with_runtime(name: &str, runtime: Runtime) -> AgentHandle {
+    pub fn new_runtime(name: &str, runtime: Runtime) -> AgentHandle {
         AgentHandle {
-            handle: Arc::new(RwLock::new(Agent::with_runtime(name, runtime))),
+            handle: Arc::new(RwLock::new(Agent::new_runtime(name, runtime))),
             signal: None
         }
     }
@@ -176,6 +179,15 @@ impl FeatureHandle {
         }
     }
 }
+
+impl FeatureHandle {
+    pub async fn with_write<F>(&self, callback: F)  where F : FnOnce(&mut RwLockWriteGuard<dyn Feature>) + Sync + Send + 'static {
+        callback(&mut self.handle.write().await);
+    }
+    pub async fn with_read<F>(&self, callback: F) where F : FnOnce(&RwLockReadGuard<dyn Feature>) + Sync + Send + 'static {
+        callback(&self.handle.read().await);
+    }
+}
 pub struct Agent {
     name: String,
     runtime: Arc<Runtime>,
@@ -193,7 +205,7 @@ impl Agent {
             ..Default::default()
         }
     }
-    pub fn with_runtime(name : &str, runtime: Runtime) -> Agent {
+    pub fn new_runtime(name : &str, runtime: Runtime) -> Agent {
         Agent {
             name: name.to_string(),
             runtime: Arc::new(runtime),

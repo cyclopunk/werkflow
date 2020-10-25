@@ -1,7 +1,7 @@
 use core::fmt::Display;
 use std::collections::HashMap;
 use crate::{AgentHandle, WorkloadData, work::{Workload, WorkloadHandle}};
-use anyhow::Error;
+
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 #[derive(Clone)]

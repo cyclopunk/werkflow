@@ -1,21 +1,20 @@
-use std::sync::Mutex;
-use std::{convert::Infallible, marker::PhantomData, sync::RwLockWriteGuard};
 
-use std::{cell::RefCell, sync::Arc};
+use std::{convert::Infallible};
+
+use std::{sync::Arc};
 use anyhow::anyhow;
-use tokio::sync::{RwLock, oneshot::{self, Receiver, Sender}};
-use tokio::{runtime::Runtime, task::JoinHandle};
-use futures::future::TryFutureExt;
+use tokio::sync::{RwLock, oneshot::{self, Sender}};
+
 //use handlebars::Handlebars;
 
 use config::Config;
-use warp::{Filter, Server};
+use warp::{Filter};
 
 use lazy_static::*;
 
 type ArcAgent = Arc<RwLock<Agent>>;
 
-use crate::{Agent, AgentHandle, threads::AsyncRunner, Feature, FeatureConfig, FeatureHandle, comm::AgentEvent};
+use crate::{Agent, AgentHandle, Feature, FeatureConfig, FeatureHandle, comm::AgentEvent};
 
 use self::filters::agent_status;
 
@@ -108,7 +107,7 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
              if let Some(h) = handle.join_handle.take() {                 
                 match h.await.map_err(|err| anyhow!("Could not join job thread. {}", err)).unwrap() {
                     Ok(result) => {                    
-                        handle.result = Some(result.result);
+                        handle.result = Some(result);
                     }
                     Err(err) => {
                         anyhow!("Workload error thrown: {}", err);
@@ -224,7 +223,7 @@ impl Feature for WebFeature {
             AgentEvent::Stopped => {
                 if let Some(signal) = self.shutdown.take() {
                     println!("Stopping the web service");
-                    let _ = signal.send(()).map_err(|err| anyhow!("Error sending signal to web service"));
+                    let _ = signal.send(()).map_err(|_err| anyhow!("Error sending signal to web service"));
                 }
             }
             AgentEvent::PayloadReceived(_) => {}
@@ -237,7 +236,8 @@ impl Feature for WebFeature {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::Runtime;
+use super::*;
 
     macro_rules! aw {
         ($e:expr) => {

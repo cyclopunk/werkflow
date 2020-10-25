@@ -1,11 +1,14 @@
+use std::collections::HashMap;
+use serde::{Deserialize, ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer}};
+use werkflow_scripting::Map;
 use custom_error::custom_error;
 use log::{error, trace};
 use rand::Rng;
-use serde::Deserialize;
-use serde::Serialize;
+
+
 use std::{error::Error, fmt::{self, Display}};
-use tokio::{task::JoinHandle, runtime::Runtime};
-use werkflow_scripting::{Dynamic, Engine, ScriptResult, to_dynamic};
+use tokio::{task::JoinHandle};
+use werkflow_scripting::{Dynamic, ScriptResult, to_dynamic};
 use werkflow_scripting::{EvalAltResult, RegisterResultFn, Script, ScriptHost};
 use anyhow::anyhow;
 use crate::{comm::AgentEvent, AgentHandle, WorkloadData};
@@ -25,7 +28,7 @@ enum Payload {
 pub struct WorkloadHandle {
     pub id: u128,
     pub status: WorkloadStatus,
-    pub(crate) join_handle: Option<JoinHandle<Result<WorkloadData, WorkloadError>>>,
+    pub(crate) join_handle: Option<JoinHandle<Result<String, WorkloadError>>>,
     pub result: Option<String>
 }
 
@@ -51,39 +54,32 @@ impl WorkloadHandle {
 }
 
 mod http {
-        use futures::executor;
-use werkflow_scripting::{from_dynamic, Map, Position};
+    use crate::Serialize;
+use serde::Deserialize;
+use crate::threads::AsyncRunner;
+use async_std::task;
+use werkflow_scripting::{from_dynamic, Position};
 
     use super::*;
 
     pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>>    
-    {
-        /// reqwest uses tokio, rhai doesn't mix with async, so I use futures to handle the tasks
-        /// TODO refactor this
-        
+    {      
         println!("Getting {}", url);    
         let l_url = url.clone();
 
-        let task = tokio::task::spawn_blocking(move || executor::block_on(async_get(l_url.clone())).unwrap() );
-        
-        if let Ok (d) = executor::block_on(task) {
-            return Ok(d)
-        } else {
-            Err(Box::new(EvalAltResult::ErrorRuntime(
-                format!("Could not deserialize result"),
-                Position::none(),
-            )))
-        }        
+        //let task = tokio::task::spawn_blocking(move || task::block_on(async_get(l_url.clone())).unwrap() );
+
+        Ok(AsyncRunner::block_on(async_get(l_url.clone())))      
     }
 
-    pub fn post(url: &'static str, body: Dynamic) -> Result<Dynamic, Box<EvalAltResult>>        
+    pub fn post(url: &'static str, body: Map) -> Result<Dynamic, Box<EvalAltResult>>        
     {
         
         let l_url = url.clone();
         
-        let task = tokio::task::spawn_blocking(move || executor::block_on(async_post(l_url, body)).unwrap() );
+        let task = tokio::task::spawn_blocking(move || task::block_on(async_post(l_url, SerMap { underlying: body })) );
 
-        match  executor::block_on(task) {
+        match  task::block_on(task) {
             Ok ( r) => {
                 Ok(r)
             },
@@ -96,17 +92,17 @@ use werkflow_scripting::{from_dynamic, Map, Position};
         }
     }
 
-    pub async fn async_get(url: &str) -> Result<Dynamic, Box<dyn Error>>
+    pub async fn async_get(url: &str) -> Dynamic
     {
         let response = reqwest::Client::new()
             .get(url)
             .header("User-Agent", "werkflow-agent/0.1.0")
             .send()
-            .await?
+            .await.map_err(|err| anyhow!("Error contacting url {}", url)).unwrap()
             .text()
-            .await?;
-            
-        Ok(to_dynamic(response).unwrap())
+            .await.map_err(|err| anyhow!("Could not make the result text")).unwrap();
+
+            to_dynamic(response).unwrap()
         /*
         let t = serde_json::from_str::<T>(&response)?;
 
@@ -117,19 +113,20 @@ use werkflow_scripting::{from_dynamic, Map, Position};
     /// same type
     /// This allows scripts to use maps of any time to call this:
     /// let user = post(url, #{ fieldOnT: someSetting })
-    pub async fn async_post(url: &str, body: Dynamic) -> Result<Dynamic, Box<dyn Error>>
-    {
-        let body = serde_json::to_string(&from_dynamic(&body)?)?;
+    pub async fn async_post(url: &str, body: SerMap) -> Dynamic {
+
+        let body = serde_json::to_string(&body).map_err(|err| anyhow!("Error contacting url {}", url)).unwrap();
+
         let response = reqwest::Client::new()
             .post(url)
             .body(body)
             .header("User-Agent", "werkflow-agent/0.1.0")
             .send()
-            .await?
+            .await.map_err(|err| anyhow!("Error contacting url {}", url)).unwrap()
             .text()
-            .await?;
+            .await.map_err(|err| anyhow!("Could not make the result text")).unwrap();
 
-        Ok(to_dynamic(response).unwrap())
+        to_dynamic(response).map_err(|err| anyhow!("Could not make result from script dynamic")).unwrap()
         //Ok(to_dynamic(response)?)
     }
 }
@@ -178,6 +175,121 @@ impl Into<WorkloadData> for ScriptResult {
     }
 }
 
+pub struct SerMap {
+    underlying: Map
+}
+
+enum SerializableField {
+    Str(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Array(Vec<SerializableField>),
+    Map(HashMap<String, SerializableField>),
+    None
+}
+
+impl SerializableField {
+    fn from_dynamic(dynamic : Dynamic) -> SerializableField {
+        
+        match &dynamic.type_name()[..] {
+            "map" => {
+                let mut hash_map = HashMap::new();
+
+                for (k, v) in dynamic.try_cast::<Map>().unwrap() {
+                    let f =SerializableField::from_dynamic(v);
+                    hash_map.insert(k.to_string(), f);
+                }
+
+                SerializableField::Map(hash_map)
+            }
+            "i64" => {
+                SerializableField::Int(dynamic.try_cast::<i64>().unwrap())
+            }
+            "f64" => {
+                SerializableField::Float(dynamic.try_cast::<f64>().unwrap())
+            }
+            "bool" => {
+                SerializableField::Bool(dynamic.try_cast::<bool>().unwrap())
+            }
+            "string" => {
+                SerializableField::Str(dynamic.try_cast::<String>().unwrap())
+            }
+            "array" => {
+                let vec = dynamic.try_cast::<Vec<Dynamic>>().unwrap().clone();
+                let mut ovec = Vec::new();
+
+                for v in vec {
+                    let f =SerializableField::from_dynamic(v);
+                    ovec.push(f);
+                }
+
+                SerializableField::Array(ovec)
+            }
+            _ => SerializableField::None
+        }
+    }
+}
+
+impl Serialize for SerializableField {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        {            
+            //let mut state = serializer.serialize_struct("Field", self.underlying.len())?;
+            match self {
+                SerializableField::Str(v) => serializer.serialize_str(&v.clone()),                   
+                SerializableField::Int(v) => serializer.serialize_i64(*v),       
+                SerializableField::Float(v) => serializer.serialize_f64(*v),        
+                SerializableField::Bool(v) => serializer.serialize_bool(*v),        
+                SerializableField::Map(v) => {
+                    let mut map = serializer.serialize_map(Some(v.len()))?;
+                    for (k,v) in v {
+                        map.serialize_entry(k, v)?;
+                    }
+                    map.end()
+                },
+                SerializableField::None => serializer.serialize_none(),
+                SerializableField::Array(s) => {
+                    let mut seq = serializer.serialize_seq(Some(s.len()))?;
+                    for e in s.clone() {
+                        seq.serialize_element(e)?;
+                    }
+                    seq.end()
+                }
+            }
+        }
+    }
+
+
+impl Serialize for SerMap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        {
+        let mut state = serializer.serialize_struct("SerMap", self.underlying.len())?;
+        let underlying = self.underlying.clone();
+        
+        for (key,v) in underlying {
+            let k : &str = Box::leak(key.to_string().into_boxed_str());
+
+            match SerializableField::from_dynamic(v) {
+                SerializableField::Str(v) => state.serialize_field(&k, &v)?,                
+                SerializableField::Int(v) => state.serialize_field(&k, &v)?,                
+                SerializableField::Float(v) => state.serialize_field(&k, &v)?,
+                SerializableField::Bool(v) => state.serialize_field(&k, &v)?,
+                SerializableField::Map(v) => state.serialize_field(&k, &v)?,
+                SerializableField::None => {}
+                SerializableField::Array(v) => {state.serialize_field(&k, &v)?}
+            }
+        }
+        
+        state.end()
+    }
+}
+
+
+
 impl Workload {
     pub fn new(agent_handle : AgentHandle) -> Workload {
         Workload {
@@ -194,7 +306,7 @@ impl Workload {
         }
     }
     
-    pub async fn run(&self) -> Result<WorkloadData, WorkloadError>        
+    pub async fn run(&self) -> Result<String, WorkloadError>        
     {
         let mut sh = ScriptHost::new();
 
@@ -216,7 +328,7 @@ impl Workload {
         match sh.execute(self.script.clone()).await {
             Ok(result) => {                
                 trace!("Done executing script");
-                Ok(result.into())
+                Ok(serde_json::to_string(&SerializableField::from_dynamic(result.underlying)).unwrap())
             }
             _ => {
                 error!("Error running script");
@@ -228,12 +340,12 @@ impl Workload {
 }
 
 #[cfg(test)]
-mod test {
-            use futures::executor;
+mod test {    
+    use tokio::runtime::Runtime;    
+    use serde::*;
+    use werkflow_scripting::{Engine, from_dynamic};
+    use super::*;
 
-use crate::Agent;
-
-use super::*;
     #[derive(Serialize, Deserialize, PartialEq, Default)]
     #[serde(default)]
     struct User {
@@ -242,9 +354,25 @@ use super::*;
     }
 
     #[test]
+    fn test_ser() {
+        let engine = Engine::new();
+
+        let result: Dynamic = engine.eval(r#"
+            #{
+                a: 42,
+                b: [ "hello", "world" ],
+                c: true,
+                d: #{ x: 123.456, y: 999.0 }
+            }
+        "#).unwrap();
+
+        println!("{}",serde_json::to_string_pretty(&SerMap { underlying: result.try_cast::<Map>().unwrap() }).unwrap())
+    }
+
+    #[test]
     fn test_stuff() {
         let runtime = Runtime::new().unwrap();
-        let agent = AgentHandle::with_runtime("Test Agent", runtime);
+        let agent = AgentHandle::new_runtime("Test Agent", runtime);
 
         let script = Script::new(
             r#"                
@@ -263,8 +391,8 @@ use super::*;
         let workload = Workload::with_script(agent.clone(),script);
         let workload2 = Workload::with_script(agent.clone(),script2);
 
-        let user = serde_json::from_str::<User>(&executor::block_on(workload.run()).unwrap().result).unwrap();
-        let user2 = serde_json::from_str::<User>(&executor::block_on(workload2.run()).unwrap().result).unwrap();
+        let user = serde_json::from_str::<User>(&async_std::task::block_on(workload.run()).unwrap()).unwrap();
+        let user2 = serde_json::from_str::<User>(&async_std::task::block_on(workload2.run()).unwrap()).unwrap();
 
         assert_eq!(11, user.id);
         assert_eq!(1, user2.id);
