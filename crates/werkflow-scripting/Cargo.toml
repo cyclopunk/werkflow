@@ -14,4 +14,4 @@ log   = "0.4.11"
 tokio = "0.2.22"
 
 pretty_env_logger = "0.4"
-rhai = { path = "../../../rhai/", features = ["serde","sync"]} 
+rhai = { version = "0.19.3", features = ["serde","sync"]} 

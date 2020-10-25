@@ -77,19 +77,7 @@ use werkflow_scripting::{from_dynamic, Position};
         
         let l_url = url.clone();
         
-        let task = tokio::task::spawn_blocking(move || task::block_on(async_post(l_url, SerMap { underlying: body })) );
-
-        match  task::block_on(task) {
-            Ok ( r) => {
-                Ok(r)
-            },
-            Err(err) => {
-                Err(Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Could not run post, general error: {}, {}", err, url),
-                    Position::none(),
-                )))
-            }
-        }
+        Ok(AsyncRunner::block_on(async_post(l_url.clone(), SerMap { underlying: body })))   
     }
 
     pub async fn async_get(url: &str) -> Dynamic
@@ -98,15 +86,11 @@ use werkflow_scripting::{from_dynamic, Position};
             .get(url)
             .header("User-Agent", "werkflow-agent/0.1.0")
             .send()
-            .await.map_err(|err| anyhow!("Error contacting url {}", url)).unwrap()
+            .await.map_err(|err| anyhow!("Error contacting url {}, {}", url,err)).unwrap()
             .text()
-            .await.map_err(|err| anyhow!("Could not make the result text")).unwrap();
+            .await.map_err(|err| anyhow!("Could not make the result text, {}", err)).unwrap();
 
             to_dynamic(response).unwrap()
-        /*
-        let t = serde_json::from_str::<T>(&response)?;
-
-        Ok(to_dynamic(t)?)*/
     }
 
     /// Convert a dynamic to a JSON string, use it as the body of a post request, and then respond with the
