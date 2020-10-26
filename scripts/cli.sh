@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker exec -it $ARGV[0] cqlsh
+docker exec -it $1 cqlsh

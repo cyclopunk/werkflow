@@ -1,10 +1,10 @@
 #![feature(type_alias_impl_trait)]
 
-use cdrs::cluster::TcpConnectionPool;
+use cdrs::{cluster::TcpConnectionPool, query_values};
 use database::DataSourceConfig;
 use werkflow_config::{read_config, ConfigSource};
 
-use cdrs::types::prelude::TryFromRow;
+use cdrs::types::prelude::{TryFromRow, TryFromUDT};
 use cdrs_helpers_derive::*;
 
 use cdrs::types::from_cdrs::FromCDRSByName;
@@ -30,16 +30,11 @@ lazy_static! {
     static ref SETTINGS: RwLock<Config> = RwLock::new(Config::default());
 }
 
-pub enum Parameter {
-    String(String),
-    Int(u64),
-    Float(f64),
-}
-pub enum Query<'a> {
-    CQL(String, Option<&'a [Parameter]>),
+pub enum Query<T> where T : Into<QueryValues> {
+    CQL(String, Option<T>),
 }
 trait SchemalessSource {
-    fn get<T>(&self, _query: Query)
+    fn get<T : Into<QueryValues> >(&self, _query: Query<T>)
     where
         for<'de> T: Deserialize<'de>,
     {
@@ -48,11 +43,6 @@ trait SchemalessSource {
 
 pub struct DataSource<T> {
     internal_source: T,
-}
-
-#[derive(Clone, Debug, TryFromRow, PartialEq)]
-struct RowStruct {
-    key: i16,
 }
 
 impl DataSource<CassandraSession> {
@@ -120,20 +110,71 @@ impl DataSource<CassandraSession> {
         self
     }
 
-    pub fn query(&mut self, query: Query) {
-        match query {
-            Query::CQL(q, _p) => {
-                let _result = self.internal_source.query(&q);
+    pub fn query<T : TryFromUDT + std::fmt::Debug + TryFromRow, F: Into<QueryValues>>(&mut self, query: Query<F>) -> Vec<T> {
+        let mut vec_of_ts: Vec<T> = Vec::new();
 
+        match query {
+            Query::CQL(q, t) => {
+
+                let rows = match t {
+                    Some(qv) => {
+                        self.internal_source
+                            .query_with_values(q, qv)
+                    }
+                    None => {
+                        self.internal_source
+                            .query(q)
+                    }
+                }.expect("query")
+                    .get_body()
+                    .expect("get body")
+                    .into_rows();
+                if let Some(rows) = rows {
+                    for row in rows {
+                        let my_row: T = T::try_from_row(row).expect("could not turn into user");
+                        vec_of_ts.push(my_row);
+                    }
+                }
                 //result.unwrap().
             }
         }
+
+        return vec_of_ts;
     }
 }
 
+macro_rules! map(
+    { $($key:expr => $value:expr),+ } => {
+        {
+            let mut m = ::std::collections::HashMap::new();
+            $(
+                m.insert($key, $value);
+            )+
+            m
+        }
+     };
+);
+
 #[cfg(test)]
 mod tests {
-    use crate::{CassandraSession, DataSource};
+    use std::collections::HashMap;
+use super::*;
+    
+    use cdrs::types::prelude::*;
+    use cdrs::frame::IntoBytes;
+    use cdrs::types::from_cdrs::FromCDRSByName;
+    #[derive(Clone, Debug, TryFromRow, TryFromUDT, IntoCDRSValue, PartialEq, Default)]
+    struct User {
+        id : i64,
+        username : String
+    }
+    
+    impl Into<QueryValues> for User {
+        
+        fn into(self) -> QueryValues { 
+            query_values!("username" => self.username, "id" => self.id)
+         }
+    }    
 
     #[tokio::test(threaded_scheduler)]
     async fn test() {
@@ -156,6 +197,11 @@ mod tests {
             .unwrap();
 
         ds.init();
+        let resp : Vec<User> = ds.query(Query::CQL("insert into user (id, username) values (?,?); ".into(), Some(User { username: "adam".to_string(), id: 1} )));
+        let users: Vec<User> = ds.query::<User,HashMap<&str,&str>>(Query::CQL("select * from user where username = ? ALLOW FILTERING;".into(), 
+            Some(map! {"username" => "adam" })));
+
+        assert_eq!(users.len(), 1);
 
         //no_compression.query(create_ks).expect("Keyspace create error");
     }

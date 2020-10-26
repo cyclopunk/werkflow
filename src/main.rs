@@ -1,6 +1,6 @@
 use anyhow::Result;
 use tokio::runtime::Runtime;
-use werkflow_agents::{web::WebFeature, Agent, AgentHandle, Feature, FeatureConfig};
+use werkflow_agents::{web::WebFeature, AgentHandle, FeatureConfig};
 
 fn main() -> Result<()> {
     let runtime = Runtime::new().unwrap();

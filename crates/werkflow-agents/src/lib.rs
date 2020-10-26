@@ -4,8 +4,7 @@ use config::Config;
 use crossbeam_channel::{Receiver, Sender};
 use std::{collections::HashMap, fmt::Debug};
 use std::{
-    marker::PhantomData,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 use tokio::sync::RwLockWriteGuard;
 

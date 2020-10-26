@@ -3,24 +3,16 @@ use std::convert::Infallible;
 use anyhow::anyhow;
 
 use tokio::sync::{
-    oneshot::{self, Sender},
-    RwLock,
+    oneshot::{self, Sender}
 };
 
 //use handlebars::Handlebars;
 
-use config::Config;
 use warp::Filter;
-
-use lazy_static::*;
 
 use crate::{comm::AgentEvent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
 
 use self::filters::agent_status;
-
-lazy_static! {
-    pub static ref SETTINGS: RwLock<Config> = RwLock::new(Config::default());
-}
 
 mod filters {
     use werkflow_scripting::Script;
@@ -252,11 +244,6 @@ mod test {
     use super::*;
     use crate::Runtime;
 
-    macro_rules! aw {
-        ($e:expr) => {
-            tokio_test::block_on($e)
-        };
-    }
     #[test]
     fn web_test() {
         let _runtime = Runtime::new().unwrap();

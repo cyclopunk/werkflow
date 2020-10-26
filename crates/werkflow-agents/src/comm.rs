@@ -1,6 +1,6 @@
 use crate::{
-    work::{Workload, WorkloadHandle},
-    AgentHandle, WorkloadData,
+    work::{Workload},
+    WorkloadData
 };
 use core::fmt::Display;
 use std::collections::HashMap;

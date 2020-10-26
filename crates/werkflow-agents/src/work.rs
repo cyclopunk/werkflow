@@ -21,12 +21,6 @@ custom_error! {pub WorkloadError
     Unknown            = "Unknown Error"
 }
 
-struct Resource;
-enum Payload {
-    Str(String),
-    Int(u32),
-}
-
 #[derive(Default)]
 pub struct WorkloadHandle {
     pub id: u128,

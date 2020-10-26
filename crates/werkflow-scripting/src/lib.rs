@@ -1,5 +1,4 @@
-use std::{any::type_name, fmt, sync::Arc};
-
+use std::fmt;
 pub use rhai::serde::*;
 
 pub use rhai::{Dynamic, Engine, EvalAltResult, Map, Position, RegisterFn, RegisterResultFn};

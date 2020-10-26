@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker run -p 9042:9042 --name $ARGV[1] --hostname $ARGV[1] -d scylladb/scylla
+docker run -p 9042:9042 --name $1 --hostname $1 -d scylladb/scylla

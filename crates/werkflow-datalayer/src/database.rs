@@ -30,7 +30,7 @@ pub struct DataSourceConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+        use werkflow_config::read_config;
     #[tokio::test(threaded_scheduler)]
     async fn test_read_config() -> Result<(), anyhow::Error> {
         let filename = "./tmp-config.toml";
