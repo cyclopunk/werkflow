@@ -3,6 +3,12 @@
 use database::DataSourceConfig;
 use werkflow_config::{ConfigSource, read_config};
 use cdrs::cluster::TcpConnectionPool;
+
+use cdrs::types::prelude::{TryFromRow};
+use cdrs_helpers_derive::*;
+
+use cdrs::types::from_cdrs::FromCDRSByName;
+
 use cdrs::load_balancing::LoadBalancingStrategy;
 use cdrs::cluster::{NodeTcpConfig, TcpConnectionsManager, session::Session};
 use config::Config;
@@ -44,11 +50,17 @@ pub struct DataSource<T> {
   internal_source : T
 }
 
+#[derive(Clone, Debug, TryFromRow, PartialEq)]
+struct RowStruct {
+    key: i16,
+}
+
 impl DataSource<CassandraSession>  {
   async fn new(source: ConfigSource) -> Result<DataSource<CassandraSession>, anyhow::Error> {
     let mut config = 
       read_config::<DataSourceConfig>(source)
-        .await?;
+        .await
+        .map_err(|err| anyhow!("Could not read datasource configuration"))?;
 
     let node_descriptions = config.distributed
       .expect("Can't find [distributed] in config.")
@@ -103,14 +115,25 @@ impl DataSource<CassandraSession>  {
     self
   }
 
+  pub fn query(&mut self, query: Query) {
+    match query {
+        Query::CQL(q, p) => {
+          let result = self.internal_source.query(&q);
+
+          //result.unwrap().
+        }
+    }
+  }
+
 }
 
 #[cfg(test)]
 mod tests {
 use crate::{CassandraSession, DataSource};
 
-#[test]
-fn test() {
+
+#[tokio::test(threaded_scheduler)]
+async fn test() {
     let config = r#"
     [cache]
     enabled=true
@@ -125,13 +148,12 @@ fn test() {
     
     "#;
 
-    tokio::runtime::Runtime::new().unwrap().block_on(async {
-      let mut ds = DataSource::new(werkflow_config::ConfigSource::String(config.into()))
-        .await
-        .unwrap();
+    let mut ds = DataSource::new(werkflow_config::ConfigSource::String(config.into()))
+      .await
+      .unwrap();
 
-      ds.init();
-    });
+    ds.init();
+  
   
     //no_compression.query(create_ks).expect("Keyspace create error");
   }
