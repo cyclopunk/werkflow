@@ -12,8 +12,6 @@ use warp::{Filter};
 
 use lazy_static::*;
 
-type ArcAgent = Arc<RwLock<Agent>>;
-
 use crate::{Agent, AgentHandle, Feature, FeatureConfig, FeatureHandle, comm::AgentEvent};
 
 use self::filters::agent_status;

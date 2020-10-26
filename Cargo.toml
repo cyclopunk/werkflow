@@ -11,9 +11,11 @@ edition = "2018"
 tokio = {version = "0.2.22", features = ["full"] }
 werkflow-scripting = {path = "crates/werkflow-scripting"}
 werkflow-agents = {path = "crates/werkflow-agents"}
+werkflow-datalayer = {path = "crates/werkflow-datalayer"}
 reqwest = "0.10.8"
 
 anyhow = "1.0.33"
+clap = "2.33.3"
 
 [workspace]
 

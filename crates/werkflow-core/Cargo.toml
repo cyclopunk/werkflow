@@ -1,0 +1,25 @@
+[package]
+name = "werkflow-core"
+description = "Crate with the core logic, utilities, and shared enums for werkflow"
+version = "0.1.0"
+authors = ["Adam Shaw <discourse@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+
+serde = {version = "1.0.116", features = ["rc"]}
+serde_json = "1.0.59"
+log   = "0.4.11"
+
+tokio = { version = "0.2.22", features = ["full"] }
+
+
+config = {version = "0.10.1", features = ["json","yaml"]}
+lazy_static = "1.4.0"
+
+parking_lot = "0.11"
+
+custom_error = "1.8.0"
+
+anyhow = "1.0.33"
+crossbeam-channel = "0.5.0"

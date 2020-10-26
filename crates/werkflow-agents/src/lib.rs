@@ -1,3 +1,4 @@
+use config::Config;
 use tokio::sync::RwLockWriteGuard;
 use crossbeam_channel::{Receiver, Sender};
 use std::{collections::HashMap, fmt::Debug};
@@ -10,15 +11,27 @@ use std::{
     },
 };
 
+use lazy_static::*;
+
 
 use tokio::{runtime::Runtime, sync::RwLock, sync::RwLockReadGuard};
 
 use work::{Workload, WorkloadHandle};
 use serde::{Serialize, Deserialize};
+
 pub mod comm;
 pub mod web;
 pub mod work;
 pub mod threads;
+pub mod cfg;
+
+// Configuration
+
+lazy_static! {
+	static ref SETTINGS: RwLock<Config> = RwLock::new(Config::default());
+}
+
+
 
 impl<'a> Default for Agent {
     fn default() -> Agent {
@@ -89,7 +102,7 @@ impl AgentHandle {
     }
 
     /// Run a closure with write access to the agent.
-    /// This function can be used in a non-async context, futures:executor::block_on isn't friendly with tokio it seems.
+    /// This function can be used in a non-async context, async_std::task::block_on isn't friendly with tokio it seems.
     /// So I've had to wrap it into a spawn_blocking. Ugly, there's probably a better way, and will be investigating if there.
     pub fn with_write<F>(&mut self, closure: F) where F : FnOnce(&mut RwLockWriteGuard<Agent>) + Sync + Send + 'static {
         let handle = self.handle.clone();

@@ -1,22 +1,23 @@
 [package]
-name = "werkflow-agents"
-description = "Agents that will take workflow tasks and execute them"
+name = "werkflow-datalayer"
+description = "werkflow Crate that will handle data read / writes"
 version = "0.1.0"
 authors = ["Adam Shaw <discourse@gmail.com>"]
 edition = "2018"
 
 [dependencies]
 
+werkflow-config = {path = "../werkflow-config/"}
+werkflow-core = {path = "../werkflow-core/"}
+
 serde = {version = "1.0.116", features = ["rc"]}
 serde_json = "1.0.59"
 log   = "0.4.11"
 
-pretty_env_logger = "0.4"
-
 tokio = { version = "0.2.22", features = ["full"] }
-warp = "0.2"
 
 config = {version = "0.10.1", features = ["json","yaml"]}
+
 lazy_static = "1.4.0"
 
 tokio-test = "0.3.0"
@@ -25,11 +26,10 @@ handlebars = "3.5.0"
 
 parking_lot = "0.11"
 
-custom_error = "1.8.0"
-reqwest = { version = "0.10.8" }
-werkflow-scripting = { path = "../werkflow-scripting"}
-rand = "0.7.3"
 anyhow = "1.0.33"
+
 crossbeam-channel = "0.5.0"
 
 async-std = { version = "1.6.5", features = ["tokio02"]}
+
+cdrs = { version = "2" }

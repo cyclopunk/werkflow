@@ -1,0 +1,9 @@
+
+        [cache]
+        enabled=true
+
+        [database]
+        source_type="cassandra"
+        host="localhost"
+        port=9042
+        
