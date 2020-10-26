@@ -3,7 +3,6 @@ use log::{error, trace};
 use rand::Rng;
 use serde::{
     ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer},
-    Deserialize,
 };
 use std::collections::HashMap;
 use werkflow_scripting::Map;
@@ -11,7 +10,6 @@ use werkflow_scripting::Map;
 use crate::{comm::AgentEvent, AgentHandle, WorkloadData};
 use anyhow::anyhow;
 use std::{
-    error::Error,
     fmt::{self, Display},
 };
 use tokio::task::JoinHandle;
@@ -60,10 +58,10 @@ impl WorkloadHandle {
 
 mod http {
     use crate::threads::AsyncRunner;
-    use crate::Serialize;
-    use async_std::task;
-    use serde::Deserialize;
-    use werkflow_scripting::{from_dynamic, Position};
+    
+    
+    
+    
 
     use super::*;
 
@@ -107,7 +105,7 @@ mod http {
     /// let user = post(url, #{ fieldOnT: someSetting })
     pub async fn async_post(url: &str, body: SerMap) -> Dynamic {
         let body = serde_json::to_string(&body)
-            .map_err(|err| anyhow!("Error contacting url {}", url))
+            .map_err(|_err| anyhow!("Error contacting url {}", url))
             .unwrap();
 
         let response = reqwest::Client::new()
@@ -116,15 +114,15 @@ mod http {
             .header("User-Agent", "werkflow-agent/0.1.0")
             .send()
             .await
-            .map_err(|err| anyhow!("Error contacting url {}", url))
+            .map_err(|_err| anyhow!("Error contacting url {}", url))
             .unwrap()
             .text()
             .await
-            .map_err(|err| anyhow!("Could not make the result text"))
+            .map_err(|_err| anyhow!("Could not make the result text"))
             .unwrap();
 
         to_dynamic(response)
-            .map_err(|err| anyhow!("Could not make result from script dynamic"))
+            .map_err(|_err| anyhow!("Could not make result from script dynamic"))
             .unwrap()
         //Ok(to_dynamic(response)?)
     }
@@ -327,7 +325,7 @@ mod test {
     use super::*;
     use serde::*;
     use tokio::runtime::Runtime;
-    use werkflow_scripting::{from_dynamic, Engine};
+    use werkflow_scripting::{Engine};
 
     #[derive(Serialize, Deserialize, PartialEq, Default)]
     #[serde(default)]

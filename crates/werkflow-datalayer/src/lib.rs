@@ -12,9 +12,9 @@ use cdrs::types::from_cdrs::FromCDRSByName;
 use anyhow::anyhow;
 use cdrs::authenticators::NoneAuthenticator;
 use cdrs::cluster::session::new as new_session;
-use cdrs::cluster::{session::Session, NodeTcpConfig, TcpConnectionsManager};
+use cdrs::cluster::{session::Session, NodeTcpConfig};
 use cdrs::cluster::{ClusterTcpConfig, NodeTcpConfigBuilder};
-use cdrs::load_balancing::LoadBalancingStrategy;
+
 use cdrs::load_balancing::RoundRobin;
 use cdrs::query::*;
 use config::Config;
@@ -57,9 +57,9 @@ struct RowStruct {
 
 impl DataSource<CassandraSession> {
     async fn new(source: ConfigSource) -> Result<DataSource<CassandraSession>, anyhow::Error> {
-        let mut config = read_config::<DataSourceConfig>(source)
+        let config = read_config::<DataSourceConfig>(source)
             .await
-            .map_err(|err| anyhow!("Could not read datasource configuration"))?;
+            .map_err(|_err| anyhow!("Could not read datasource configuration"))?;
 
         let node_descriptions = config
             .distributed
@@ -101,7 +101,7 @@ impl DataSource<CassandraSession> {
     async fn init_with(&mut self, filename: &str) -> &mut DataSource<CassandraSession> {
         let config = read_config::<DataSourceConfig>(ConfigSource::File("werkflow.toml".into()))
             .await
-            .map_err(|err| anyhow!("Could not process config file: {}", filename))
+            .map_err(|_err| anyhow!("Could not process config file: {}", filename))
             .expect("Config file could not be found");
 
         let init_string: String = config
@@ -122,8 +122,8 @@ impl DataSource<CassandraSession> {
 
     pub fn query(&mut self, query: Query) {
         match query {
-            Query::CQL(q, p) => {
-                let result = self.internal_source.query(&q);
+            Query::CQL(q, _p) => {
+                let _result = self.internal_source.query(&q);
 
                 //result.unwrap().
             }

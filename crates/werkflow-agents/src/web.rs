@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 
 use anyhow::anyhow;
-use std::sync::Arc;
+
 use tokio::sync::{
     oneshot::{self, Sender},
     RwLock,
@@ -14,7 +14,7 @@ use warp::Filter;
 
 use lazy_static::*;
 
-use crate::{comm::AgentEvent, Agent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
+use crate::{comm::AgentEvent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
 
 use self::filters::agent_status;
 
@@ -259,7 +259,7 @@ mod test {
     }
     #[test]
     fn web_test() {
-        let mut runtime = Runtime::new().unwrap();
-        let mut agt = AgentHandle::new();
+        let _runtime = Runtime::new().unwrap();
+        let _agt = AgentHandle::new();
     }
 }
