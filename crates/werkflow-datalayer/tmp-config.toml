@@ -1,9 +1,13 @@
 
         [cache]
         enabled=true
+        host="localhost:"
 
         [database]
         source_type="cassandra"
         host="localhost"
         port=9042
+
+        [distribtued]
+        nodes=[]
         

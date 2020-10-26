@@ -1,5 +1,6 @@
 #![feature(type_alias_impl_trait)]
 
+use cdrs::frame::IntoBytes;
 use cdrs::{cluster::TcpConnectionPool, query_values};
 use database::DataSourceConfig;
 use werkflow_config::{read_config, ConfigSource};
@@ -9,7 +10,7 @@ use cdrs_helpers_derive::*;
 
 use cdrs::types::from_cdrs::FromCDRSByName;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use cdrs::authenticators::NoneAuthenticator;
 use cdrs::cluster::session::new as new_session;
 use cdrs::cluster::{session::Session, NodeTcpConfig};
@@ -23,6 +24,7 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 
 mod database;
+mod cache;
 
 type CassandraSession = Session<RoundRobin<TcpConnectionPool<NoneAuthenticator>>>;
 
@@ -31,8 +33,11 @@ lazy_static! {
 }
 
 pub enum Query<T> where T : Into<QueryValues> {
-    CQL(String, Option<T>),
+    Raw(String),
+    RawWithValues(String, T),
 }
+
+
 trait SchemalessSource {
     fn get<T : Into<QueryValues> >(&self, _query: Query<T>)
     where
@@ -42,7 +47,7 @@ trait SchemalessSource {
 }
 
 pub struct DataSource<T> {
-    internal_source: T,
+    source: T,
 }
 
 impl DataSource<CassandraSession> {
@@ -74,7 +79,7 @@ impl DataSource<CassandraSession> {
             new_session(&cluster_config, RoundRobin::new()).expect("session should be created");
 
         Ok(DataSource {
-            internal_source: session,
+            source: session,
         })
     }
 
@@ -82,7 +87,7 @@ impl DataSource<CassandraSession> {
         let init_script =
             String::from_utf8_lossy(include_bytes!("../resources/init.wf")).into_owned();
         for line in init_script.lines() {
-            self.internal_source.query(line).unwrap();
+            self.source.query(line).unwrap();
         }
 
         self
@@ -101,7 +106,7 @@ impl DataSource<CassandraSession> {
             .expect(&format!("Could not find init_script in {}", filename));
 
         for line in init_string.lines() {
-            self.internal_source
+            self.source
                 .query(line)
                 .map_err(|err| anyhow!("Could not run query {}: {}", line, err))
                 .expect("Error in script");
@@ -110,38 +115,38 @@ impl DataSource<CassandraSession> {
         self
     }
 
-    pub fn query<T : TryFromUDT + std::fmt::Debug + TryFromRow, F: Into<QueryValues>>(&mut self, query: Query<F>) -> Vec<T> {
+    pub fn query<T : TryFromUDT + std::fmt::Debug + TryFromRow, F: Into<QueryValues>>(&mut self, query: Query<F>) -> Result<Vec<T>> {
         let mut vec_of_ts: Vec<T> = Vec::new();
 
-        match query {
-            Query::CQL(q, t) => {
+        let result = match query {
+            Query::RawWithValues::<F>(q, t) => {
+                    self.source
+                        .query_with_values(q, t)                
+                        .map_err(|err| anyhow!("Could not run query: {}", err))?
+            }
+            Query::Raw(q) => {
+                    self.source
+                        .query(q)
+                        .map_err(|err| anyhow!("Could not run query: {}", err))?              
+            }
+        };
 
-                let rows = match t {
-                    Some(qv) => {
-                        self.internal_source
-                            .query_with_values(q, qv)
-                    }
-                    None => {
-                        self.internal_source
-                            .query(q)
-                    }
-                }.expect("query")
-                    .get_body()
-                    .expect("get body")
-                    .into_rows();
-                if let Some(rows) = rows {
-                    for row in rows {
-                        let my_row: T = T::try_from_row(row).expect("could not turn into user");
-                        vec_of_ts.push(my_row);
-                    }
-                }
-                //result.unwrap().
+        let rows = result            
+            .get_body()
+            .map_err(|err| anyhow!("Could not get body: {}", err))?
+            .into_rows();
+
+        if let Some(rows) = rows {
+            for row in rows {
+                let my_row: T = T::try_from_row(row).expect("could not turn into user");
+                vec_of_ts.push(my_row);
             }
         }
 
-        return vec_of_ts;
+        return Ok(vec_of_ts);
     }
 }
+
 
 macro_rules! map(
     { $($key:expr => $value:expr),+ } => {
@@ -154,6 +159,11 @@ macro_rules! map(
         }
      };
 );
+
+#[derive(Clone, Debug, TryFromRow, TryFromUDT, IntoCDRSValue, PartialEq, Default)]
+struct NoValue {
+    none: i64
+}
 
 #[cfg(test)]
 mod tests {
@@ -168,7 +178,8 @@ use super::*;
         id : i64,
         username : String
     }
-    
+
+  
     impl Into<QueryValues> for User {
         
         fn into(self) -> QueryValues { 
@@ -192,17 +203,24 @@ use super::*;
     
     "#;
 
-        let mut ds = DataSource::new(werkflow_config::ConfigSource::String(config.into()))
+        let mut ds : DataSource<CassandraSession> = DataSource::new(werkflow_config::ConfigSource::String(config.into()))
             .await
             .unwrap();
 
         ds.init();
-        let resp : Vec<User> = ds.query(Query::CQL("insert into user (id, username) values (?,?); ".into(), Some(User { username: "adam".to_string(), id: 1} )));
-        let users: Vec<User> = ds.query::<User,HashMap<&str,&str>>(Query::CQL("select * from user where username = ? ALLOW FILTERING;".into(), 
-            Some(map! {"username" => "adam" })));
 
+        for i in 1..50 {
+            let _ : Vec<User> = ds.query(Query::RawWithValues("insert into user (id, username) values (?,?); ".into(), User { username: "adam".into(), id: i} )).unwrap();
+        }
+
+        println!("Inserted 50 users");
+
+        let users: Vec<User> = ds.query(Query::RawWithValues("select * from user where id = ?".into(), 
+            map! {"id" => 42 })).unwrap();
+
+        
         assert_eq!(users.len(), 1);
-
-        //no_compression.query(create_ks).expect("Keyspace create error");
+        
+        ds.query::<NoValue,User>(Query::Raw("truncate user; ".into())).unwrap();
     }
 }

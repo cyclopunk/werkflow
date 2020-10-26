@@ -12,8 +12,9 @@ pub struct DatabaseConfig {
     pub password: Option<String>,
     pub port: i32,
 }
-#[derive(Serialize, Deserialize, Default, Clone, Copy)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 pub struct CacheConfig {
+    pub host: String,
     pub enabled: bool,
 }
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -30,26 +31,31 @@ pub struct DataSourceConfig {
 
 #[cfg(test)]
 mod tests {
-        use werkflow_config::read_config;
+        use crate::database::DatabaseConfig;
+use werkflow_config::{ConfigSource, read_config};
+
+    use super::DataSourceConfig;
     #[tokio::test(threaded_scheduler)]
     async fn test_read_config() -> Result<(), anyhow::Error> {
         let filename = "./tmp-config.toml";
         let config_file = r#"
         [cache]
         enabled=true
+        host="localhost:"
 
         [database]
         source_type="cassandra"
         host="localhost"
         port=9042
+        username=""
+        password=""
+
+        [distribtued]
+        nodes=[]
         "#
         .trim_start_matches(" ");
-
-        std::fs::write(filename, config_file)?;
-
-        let cfg = read_config(werkflow_config::ConfigSource::File(filename.into())).await?;
-
-        std::fs::remove_file(filename)?;
+        let cfg : DataSourceConfig = read_config(ConfigSource::String(config_file.into())).await?;
+        
 
         Ok(())
     }

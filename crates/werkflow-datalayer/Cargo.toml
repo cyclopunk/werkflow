@@ -35,3 +35,5 @@ async-std = { version = "1.6.5", features = ["tokio02"]}
 cdrs = { version = "2.3.3" }
 
 cdrs_helpers_derive = "0.3.3"
+
+redis = "0.17.0"
