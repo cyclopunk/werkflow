@@ -4,7 +4,7 @@ pub use rhai::serde::*;
 
 pub use rhai::{Dynamic, Engine, EvalAltResult, Map, Position, RegisterFn, RegisterResultFn};
 
-use log::debug;
+
 use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct Script {
@@ -91,6 +91,7 @@ impl ScriptHost {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use crate::*;
@@ -114,6 +115,12 @@ mod tests {
     #[derive(Serialize, Deserialize, PartialEq, Clone, Copy, Debug)]
     struct User {
         id: u32,
+    }
+
+    impl From<ScriptResult> for User {
+        fn from(sr: ScriptResult) -> Self {
+            sr.to()
+        }
     }
     #[test]
     fn script_host() {

@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use config::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize};
 
 use werkflow_core::HttpAction;
 
@@ -113,6 +113,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use serde::Serialize;
 
     #[derive(Serialize, Deserialize, Default, Clone)]
     pub struct DatabaseConfig {
@@ -132,10 +134,6 @@ mod tests {
         database: DatabaseConfig,
         cache: CacheConfig,
     }
-
-    
-
-    use super::*;
 
     #[tokio::test(threaded_scheduler)]
     async fn test_read_config() -> Result<(), anyhow::Error> {
