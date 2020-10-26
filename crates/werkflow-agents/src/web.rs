@@ -1,18 +1,20 @@
+use std::convert::Infallible;
 
-use std::{convert::Infallible};
-
-use std::{sync::Arc};
 use anyhow::anyhow;
-use tokio::sync::{RwLock, oneshot::{self, Sender}};
+use std::sync::Arc;
+use tokio::sync::{
+    oneshot::{self, Sender},
+    RwLock,
+};
 
 //use handlebars::Handlebars;
 
 use config::Config;
-use warp::{Filter};
+use warp::Filter;
 
 use lazy_static::*;
 
-use crate::{Agent, AgentHandle, Feature, FeatureConfig, FeatureHandle, comm::AgentEvent};
+use crate::{comm::AgentEvent, Agent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
 
 use self::filters::agent_status;
 
@@ -21,9 +23,9 @@ lazy_static! {
 }
 
 mod filters {
-        use werkflow_scripting::Script;
+    use werkflow_scripting::Script;
 
-use crate::AgentHandle;
+    use crate::AgentHandle;
 
     use super::*;
 
@@ -46,7 +48,7 @@ use crate::AgentHandle;
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("run")
             .and(warp::post())
-            .and(warp::any().map(move || agent.clone()))            
+            .and(warp::any().map(move || agent.clone()))
             .and(warp::filters::body::json::<Script>())
             .and_then(handlers::start_job)
     }
@@ -77,9 +79,9 @@ use crate::AgentHandle;
 }
 
 mod handlers {
-        use werkflow_scripting::Script;
+    use werkflow_scripting::Script;
 
-use crate::{AgentCommand, AgentHandle, work::Workload};
+    use crate::{work::Workload, AgentCommand, AgentHandle};
 
     use super::*;
 
@@ -90,44 +92,49 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
         ))
     }
 
-    pub async fn start_job<'a>(agent_handle: AgentHandle, script: Script) -> Result<impl warp::Reply, Infallible> {
+    pub async fn start_job<'a>(
+        agent_handle: AgentHandle,
+        script: Script,
+    ) -> Result<impl warp::Reply, Infallible> {
         let handle = agent_handle.handle.clone();
-        
+
         let mut agent = handle.write().await;
 
         let wl_handle = agent.run(Workload::with_script(agent_handle.clone(), script));
 
         let id = wl_handle.read().await.id;
 
-        agent.runtime.spawn(async move {              
-             let mut handle = wl_handle.write().await;
-               
-             if let Some(h) = handle.join_handle.take() {                 
-                match h.await.map_err(|err| anyhow!("Could not join job thread. {}", err)).unwrap() {
-                    Ok(result) => {                    
+        agent.runtime.spawn(async move {
+            let mut handle = wl_handle.write().await;
+
+            if let Some(h) = handle.join_handle.take() {
+                match h
+                    .await
+                    .map_err(|err| anyhow!("Could not join job thread. {}", err))
+                    .unwrap()
+                {
+                    Ok(result) => {
                         handle.result = Some(result);
                     }
                     Err(err) => {
                         anyhow!("Workload error thrown: {}", err);
                     }
-                } 
+                }
 
                 handle.status = crate::work::WorkloadStatus::Complete;
-             }
-             drop(handle);
+            }
+            drop(handle);
         });
 
         println!("Spawned Monitor on Join Handle");
 
         drop(agent);
-        
-        Ok(format!(
-            "Started job {}", id
-        ))
+
+        Ok(format!("Started job {}", id))
     }
     pub async fn list_jobs<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
         println!("Aquiring read on Agent");
-        
+
         let handle = agent.handle.read().await;
         println!("Got read on agent.");
 
@@ -137,7 +144,12 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
             println!("Aquiring read on work handle");
             let wh = jh.read().await;
             println!("Got read on work handle");
-            vec.push(format!("Job: {}, status: {} result: {}",wh.id, wh.status, wh.result.as_ref().unwrap_or(&"".to_string())));
+            vec.push(format!(
+                "Job: {}, status: {} result: {}",
+                wh.id,
+                wh.status,
+                wh.result.as_ref().unwrap_or(&"".to_string())
+            ));
         }
 
         Ok(serde_json::to_string(&vec).unwrap())
@@ -167,7 +179,7 @@ use crate::{AgentCommand, AgentHandle, work::Workload};
 pub struct WebFeature {
     config: FeatureConfig,
     shutdown: Option<Sender<()>>,
-    agent: Option<AgentHandle>
+    agent: Option<AgentHandle>,
 }
 
 impl<'a> WebFeature {
@@ -175,53 +187,56 @@ impl<'a> WebFeature {
         FeatureHandle::new(WebFeature {
             config: config.clone(),
             shutdown: None,
-            agent: None
+            agent: None,
         })
     }
 }
 
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentHandle) {
-        
         self.agent = Some(agent.clone());
-        
     }
 
     fn name(&self) -> String {
         return format!("Web Feature (running on port {})", self.config.bind_port).to_string();
     }
-    
-    fn on_event(&mut self, event: AgentEvent) { 
+
+    fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
                 println!("Got agent started event");
-            let agent = self.agent.clone().unwrap();
+                let agent = self.agent.clone().unwrap();
 
-            let api = agent_status(agent.clone())
-                .or(filters::stop_agent(agent.clone()))
-                .or(filters::start_agent(agent.clone()))
-                .or(filters::start_job(agent.clone()))
-                .or(filters::list_jobs(agent.clone()));
+                let api = agent_status(agent.clone())
+                    .or(filters::stop_agent(agent.clone()))
+                    .or(filters::start_agent(agent.clone()))
+                    .or(filters::start_job(agent.clone()))
+                    .or(filters::list_jobs(agent.clone()));
 
                 let server = warp::serve(api);
-                let (tx,rx) = oneshot::channel();
-                
+                let (tx, rx) = oneshot::channel();
+
                 self.shutdown = Some(tx);
 
-                let (_, srv) = server.bind_with_graceful_shutdown((self.config.bind_address, self.config.bind_port), async move {   
-                    println!("Waiting for Shutdown");         
-                    rx.await.ok();
-                    println!("Got shutdown!");
-                });
+                let (_, srv) = server.bind_with_graceful_shutdown(
+                    (self.config.bind_address, self.config.bind_port),
+                    async move {
+                        println!("Waiting for Shutdown");
+                        rx.await.ok();
+                        println!("Got shutdown!");
+                    },
+                );
 
                 agent.with_read(|f| {
                     f.runtime.spawn(srv);
-                });                
+                });
             }
             AgentEvent::Stopped => {
                 if let Some(signal) = self.shutdown.take() {
                     println!("Stopping the web service");
-                    let _ = signal.send(()).map_err(|_err| anyhow!("Error sending signal to web service"));
+                    let _ = signal
+                        .send(())
+                        .map_err(|_err| anyhow!("Error sending signal to web service"));
                 }
             }
             AgentEvent::PayloadReceived(_) => {}
@@ -234,8 +249,8 @@ impl Feature for WebFeature {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::Runtime;
-use super::*;
 
     macro_rules! aw {
         ($e:expr) => {

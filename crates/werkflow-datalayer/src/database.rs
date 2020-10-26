@@ -1,33 +1,31 @@
-use std::error::Error;
-use config::*;
-use serde::{Serialize, Deserialize};
 use anyhow::anyhow;
+use config::*;
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 use werkflow_config::*;
-
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct DatabaseConfig {
-    pub source_type:String,
-    pub host:String,
+    pub source_type: String,
+    pub host: String,
     pub username: Option<String>,
     pub password: Option<String>,
-    pub port:i32
+    pub port: i32,
 }
 #[derive(Serialize, Deserialize, Default, Clone, Copy)]
 pub struct CacheConfig {
-    pub enabled:bool
+    pub enabled: bool,
 }
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct DistributedConfig {
-   pub nodes: Option<Vec<String>>,
-   pub init_script: Option<String>
+    pub nodes: Option<Vec<String>>,
+    pub init_script: Option<String>,
 }
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct DataSourceConfig {
     pub database: DatabaseConfig,
     pub cache: CacheConfig,
-    pub distributed: Option<DistributedConfig>
-
+    pub distributed: Option<DistributedConfig>,
 }
 
 #[cfg(test)]
@@ -44,12 +42,13 @@ mod tests {
         source_type="cassandra"
         host="localhost"
         port=9042
-        "#.trim_start_matches(" ");
+        "#
+        .trim_start_matches(" ");
 
         std::fs::write(filename, config_file)?;
 
         let cfg = read_config(werkflow_config::ConfigSource::File(filename.into())).await?;
-        
+
         std::fs::remove_file(filename)?;
 
         Ok(())

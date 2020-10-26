@@ -1,4 +1,3 @@
-
 use std::{any::type_name, fmt, sync::Arc};
 
 pub use rhai::serde::*;
@@ -82,7 +81,6 @@ impl ScriptHost {
         self.engine.register_result_fn(name, f);
     }
     pub async fn execute(&self, script: Script) -> Result<ScriptResult, ScriptHostError> {
-        
         println!("Start running script in Script Host");
         let d = self.engine.eval::<Dynamic>(&script.body);
 
@@ -97,8 +95,8 @@ impl ScriptHost {
 mod tests {
     use crate::*;
     use log::info;
-    use tokio::runtime::Runtime;
     use std::sync::Once;
+    use tokio::runtime::Runtime;
 
     static START: Once = Once::new();
 
@@ -125,8 +123,8 @@ mod tests {
 
         init();
 
-        let result = runtime.block_on(host
-            .execute(Script {
+        let result = runtime
+            .block_on(host.execute(Script {
                 body: r#" test() "#.to_string(),
             }))
             .unwrap();
