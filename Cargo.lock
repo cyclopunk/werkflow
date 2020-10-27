@@ -2547,6 +2547,7 @@ dependencies = [
  "tokio 0.2.22",
  "tokio-test",
  "warp",
+ "werkflow-datalayer",
  "werkflow-scripting",
 ]
 

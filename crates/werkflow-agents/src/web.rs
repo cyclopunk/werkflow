@@ -14,6 +14,8 @@ use crate::{comm::AgentEvent, AgentHandle, Feature, FeatureConfig, FeatureHandle
 
 use self::filters::agent_status;
 
+use serde::{Serialize, Deserialize};
+
 mod filters {
     use werkflow_scripting::Script;
 
@@ -48,7 +50,7 @@ mod filters {
         agent: AgentHandle,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("stop")
-            .and(warp::get())
+            .and(warp::post())
             .and(with_agent(agent))
             .and_then(handlers::stop_agent)
     }
@@ -56,7 +58,7 @@ mod filters {
         agent: AgentHandle,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("start")
-            .and(warp::get())
+            .and(warp::post())
             .and(with_agent(agent))
             .and_then(handlers::start_agent)
     }
@@ -69,7 +71,23 @@ mod filters {
             .and_then(handlers::list_jobs)
     }
 }
+mod model {
+    use super::*;
+    #[derive(Serialize, Deserialize)]
+    pub struct JobResult { 
+        pub id : u128,
+        pub status: String,
+        pub result_string : String
+    }
 
+    #[derive(Serialize, Deserialize, Clone)]
+    pub struct AgentInformation {
+        pub name: String,
+        pub jobs_ran: u32,        
+        pub address: String,
+        pub connected_agents: Vec<u32>
+    }
+}
 mod handlers {
     use werkflow_scripting::Script;
 
@@ -124,24 +142,25 @@ mod handlers {
 
         Ok(format!("Started job {}", id))
     }
+    
     pub async fn list_jobs<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
         println!("Aquiring read on Agent");
 
         let handle = agent.handle.read().await;
         println!("Got read on agent.");
 
-        let mut vec: Vec<String> = Vec::new();
+        let mut vec: Vec<model::JobResult> = Vec::new();
 
         for jh in &handle.work_handles {
             println!("Aquiring read on work handle");
             let wh = jh.read().await;
             println!("Got read on work handle");
-            vec.push(format!(
-                "Job: {}, status: {} result: {}",
-                wh.id,
-                wh.status,
-                wh.result.as_ref().unwrap_or(&"".to_string())
-            ));
+            
+            vec.push(model::JobResult {
+                id: wh.id,
+                status: wh.status.to_string(),
+                result_string: wh.result.clone().unwrap_or_default()
+            });
         }
 
         Ok(serde_json::to_string(&vec).unwrap())
