@@ -1,5 +1,5 @@
 CREATE KEYSPACE IF NOT EXISTS werkflow_system WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };
 USE werkflow_system;
-CREATE TABLE if not exists user (id bigint primary key, username varchar);
+CREATE TABLE if not exists user (id bigint primary key, username varchar, password varchar);
 CREATE TABLE if not exists jobs (id bigint primary key, description varchar);
 CREATE TABLE if not exists results (id bigint primary key, job_id bigint, result_string varchar);

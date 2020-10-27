@@ -19,12 +19,11 @@ mod tests {
     use super::*;
     #[tokio::test(threaded_scheduler)]
     async fn test_read_config() -> Result<(), anyhow::Error> {
-        let filename = "./tmp-config.toml";
+
         let config_file = r#"        
         enabled=true
         host="redis://127.0.0.1:6379/"
-        "#
-        .trim_start_matches(" ");
+        "#;
 
         let cfg : CacheConfig = read_config(werkflow_config::ConfigSource::String(config_file.into())).await?;
         
