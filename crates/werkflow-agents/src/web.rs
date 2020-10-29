@@ -2,6 +2,7 @@ use std::convert::Infallible;
 
 use anyhow::anyhow;
 
+use log::info;
 use tokio::sync::{
     oneshot::{self, Sender}
 };
@@ -144,17 +145,12 @@ mod handlers {
     }
     
     pub async fn list_jobs<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        println!("Aquiring read on Agent");
-
         let handle = agent.handle.read().await;
-        println!("Got read on agent.");
-
+      
         let mut vec: Vec<model::JobResult> = Vec::new();
 
         for jh in &handle.work_handles {
-            println!("Aquiring read on work handle");
             let wh = jh.read().await;
-            println!("Got read on work handle");
             
             vec.push(model::JobResult {
                 id: wh.id,
@@ -215,7 +211,6 @@ impl Feature for WebFeature {
     fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
-                println!("Got agent started event");
                 let agent = self.agent.clone().unwrap();
 
                 let api = agent_status(agent.clone())
@@ -232,9 +227,7 @@ impl Feature for WebFeature {
                 let (_, srv) = server.bind_with_graceful_shutdown(
                     (self.config.bind_address, self.config.bind_port),
                     async move {
-                        println!("Waiting for Shutdown");
-                        rx.await.ok();
-                        println!("Got shutdown!");
+                        rx.await.ok();                        
                     },
                 );
 
@@ -244,7 +237,7 @@ impl Feature for WebFeature {
             }
             AgentEvent::Stopped => {
                 if let Some(signal) = self.shutdown.take() {
-                    println!("Stopping the web service");
+                    info!("Stopping the web service");
                     let _ = signal
                         .send(())
                         .map_err(|_err| anyhow!("Error sending signal to web service"));

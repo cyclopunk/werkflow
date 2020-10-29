@@ -7,3 +7,5 @@ pub enum HttpAction {
     GetWithHeaders(String, HashMap<String, String>),
     PostWithHeaders(String, HashMap<String, String>),
 }
+
+pub mod sec;

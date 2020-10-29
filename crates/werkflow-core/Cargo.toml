@@ -23,3 +23,7 @@ custom_error = "1.8.0"
 
 anyhow = "1.0.33"
 crossbeam-channel = "0.5.0"
+
+cloudflare-rs = "0.6.6"
+
+acme-client = "0.5.3"

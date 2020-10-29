@@ -53,10 +53,6 @@ impl WorkloadHandle {
 mod http {
     use crate::threads::AsyncRunner;
     
-    
-    
-    
-
     use super::*;
 
     pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {

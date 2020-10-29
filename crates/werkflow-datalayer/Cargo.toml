@@ -37,3 +37,13 @@ cdrs = { version = "2.3.3" }
 cdrs_helpers_derive = "0.3.3"
 
 redis = "0.17.0"
+
+clap = "2.33.3"
+
+futures = "0.3.7"
+
+rdkafka = { version = "0.24", features = ["cmake-build"] }
+
+amiquip = { version = "0.3.3" }
+
+bincode = "1.3.1"

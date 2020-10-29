@@ -26,24 +26,13 @@ use serde::Deserialize;
 mod database;
 mod cache;
 
+#[path = "events/amqp.rs"]
+mod amqp;
+
 type CassandraSession = Session<RoundRobin<TcpConnectionPool<NoneAuthenticator>>>;
-
-lazy_static! {
-    static ref SETTINGS: RwLock<Config> = RwLock::new(Config::default());
-}
-
 pub enum Query<T> where T : Into<QueryValues> {
     Raw(String),
     RawWithValues(String, T),
-}
-
-
-trait SchemalessSource {
-    fn get<T : Into<QueryValues> >(&self, _query: Query<T>)
-    where
-        for<'de> T: Deserialize<'de>,
-    {
-    }
 }
 
 pub struct DataSource<T> {

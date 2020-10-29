@@ -2,8 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
-
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct DatabaseConfig {
     pub source_type: String,
@@ -37,7 +35,6 @@ use werkflow_config::{ConfigSource, read_config};
     use super::DataSourceConfig;
     #[tokio::test(threaded_scheduler)]
     async fn test_read_config() -> Result<(), anyhow::Error> {
-        let filename = "./tmp-config.toml";
         let config_file = r#"
         [cache]
         enabled=true
