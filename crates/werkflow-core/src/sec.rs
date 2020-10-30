@@ -1,4 +1,4 @@
-use acme_client::Directory;
+use acme2_slim::Account;
 use cloudflare::{endpoints::{dns::{self, DeleteDnsRecord, ListDnsRecordsParams}, zone::{ListZones, ListZonesParams}}, framework::{async_api::ApiClient, Environment, async_api::Client, HttpApiClientConfig}};
 use cloudflare::framework::auth::Credentials;
 use anyhow::{anyhow, Result};
@@ -139,30 +139,44 @@ impl DnsProvider {
 }
 
 struct CertificateProvider {
-    account: acme_client::Account
+    account: Account
 }
 
 impl CertificateProvider {
     async fn new(provider: DnsProvider, email : &str, domain_name: &str) -> Result<CertificateProvider> {
-        use acme_client::Directory;
+        use acme2_slim::Directory;
+
+        let domains = [domain_name];
 
         let directory = Directory::lets_encrypt().map_err(|err| anyhow!("Error creating LetsEncrypt directory: {}", err))?;
-        let account = directory.account_registration()
+        
+        let mut account = directory.account_registration()
                                .email(email)
                                .register()
                                .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
 
-        let authorization = account.authorization(domain_name)
-            .map_err(|err| anyhow!("Error creating LetsEncrypt authorization: {}", err))?;
-        let dns_challenge = authorization.get_dns_challenge().ok_or(anyhow!("Could not get dns challenge"))
-            .map_err(|err| anyhow!("No challenge received: {}", err))?;
-        let signature = dns_challenge.signature()
-            .map_err(|err| anyhow!("Could not get signature. {}", err))?;
+        let order = account.create_order(domain_name)
+            .map_err(|err| anyhow!("Error creating LetsEncrypt Order {}", err))?;
 
-        provider.add_or_replace(&Zone::ByName(domain_name.into()), &ZoneRecord::TXT("_acme-challenge".into(), signature)).await?;
+        for challenge in order.challenges.clone() {
+            if challenge.ctype() == "dns-01" {
+                let signature = challenge.signature()
+                    .map_err(|err| anyhow!("Could not get signature. {}", err))?;
 
-        dns_challenge.validate()
-            .map_err(|err| anyhow!("Validation failed {}", err))?;
+                provider.add_or_replace(&Zone::ByName(domain_name.into()), &ZoneRecord::TXT(format!("_acme-challenge.{}", domain_name).into(), signature)).await?;
+
+                challenge.validate(&account)
+                    .map_err(|err| anyhow!("Validation failed {}", err))?;
+
+                let signer = account.certificate_signer(&domains);
+
+                let cert = signer.sign_certificate(&order).unwrap();
+                cert.save_signed_certificate(format!("certs/{}.pem", domain_name))
+                    .map_err(|err| anyhow!("Could not save signed certificate. {}", err))?;
+                cert.save_private_key(format!("certs/{}.key", domain_name))
+                    .map_err(|err| anyhow!("Could not save private key. {}", err))?;
+            }
+        }
 
         Ok(CertificateProvider {
             account:account
