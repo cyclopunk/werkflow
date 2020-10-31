@@ -148,17 +148,18 @@ impl CertificateProvider {
 
         let domains = [domain_name];
 
-        let directory = Directory::lets_encrypt().map_err(|err| anyhow!("Error creating LetsEncrypt directory: {}", err))?;
+        let directory = Directory::lets_encrypt()
+            .map_err(|err| anyhow!("Error creating LetsEncrypt directory: {}", err))?;
         
         let mut account = directory.account_registration()
                                .email(email)
                                .register()
                                .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
 
-        let order = account.create_order(domain_name)
+        let order = account.create_order(&[domain_name])
             .map_err(|err| anyhow!("Error creating LetsEncrypt Order {}", err))?;
 
-        for challenge in order.challenges.clone() {
+        for challenge in order.get_dns_challenges() {
             if challenge.ctype() == "dns-01" {
                 let signature = challenge.signature()
                     .map_err(|err| anyhow!("Could not get signature. {}", err))?;
@@ -168,7 +169,7 @@ impl CertificateProvider {
                 challenge.validate(&account)
                     .map_err(|err| anyhow!("Validation failed {}", err))?;
 
-                let signer = account.certificate_signer(&domains);
+                let signer = account.certificate_signer();
 
                 let cert = signer.sign_certificate(&order).unwrap();
                 cert.save_signed_certificate(format!("certs/{}.pem", domain_name))

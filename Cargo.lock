@@ -2,8 +2,8 @@
 # It is not intended for manual editing.
 [[package]]
 name = "acme2-slim"
-version = "0.1.0"
-source = "git+https://github.com/cyclopunk/acme2-slim?branch=main#2d9307779065ebd262bc5ccc87d017a5bf1bf68d"
+version = "0.1.2"
+source = "git+https://github.com/cyclopunk/acme2-slim?branch=main#986d725432cbf319e86da5112d6d01680cf813a7"
 dependencies = [
  "base64 0.13.0",
  "env_logger 0.8.1",

@@ -88,14 +88,11 @@ where
     let src = final_action
         .send()
         .await
-        .map_err(|err| anyhow!("Error contacting url {:?}, {}", action, err))
-        .unwrap()
+        .map_err(|err| anyhow!("Error contacting url {:?}, {}", action, err))?
         .text()
         .await
-        .map_err(|err| anyhow!("Could not make the result text, {}", err))
-        .unwrap();
-
-    println!("{}", src);
+        .map_err(|err| anyhow!("Could not make the result text, {}", err))?;
+        
     let mut config = Config::new();
 
     config
