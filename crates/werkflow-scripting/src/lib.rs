@@ -2,7 +2,7 @@ use rhai::Scope;
 use std::fmt;
 pub use rhai::serde::*;
 
-pub use rhai::{Dynamic, Engine, EvalAltResult, Map, Position, RegisterFn, RegisterResultFn};
+pub use rhai::{Dynamic, Engine, EvalAltResult, Map, Position, RegisterFn, RegisterResultFn, ImmutableString};
 
 
 use serde::{Deserialize, Serialize};

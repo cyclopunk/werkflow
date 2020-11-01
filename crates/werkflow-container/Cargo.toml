@@ -1,5 +1,5 @@
 [package]
-name = "werkflow-config"
+name = "werkflow-container"
 description = "Crate to load configurations."
 version = "0.1.0"
 authors = ["Adam Shaw <discourse@gmail.com>"]
@@ -16,3 +16,4 @@ lazy_static = "1.4.0"
 anyhow = "1.0.33"
 werkflow-core = {path = "../werkflow-core"}
 bollard = "0.8.0"
+futures-util = "0.3.4"

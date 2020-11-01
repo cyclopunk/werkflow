@@ -1,3 +1,4 @@
+use werkflow_scripting::ImmutableString;
 use werkflow_config::ConfigSource;
 use crate::cfg::AgentConfiguration;
 use crate::AsyncRunner;
@@ -20,7 +21,7 @@ use std::{
 };
 use tokio::task::JoinHandle;
 use werkflow_scripting::{to_dynamic, Dynamic, ScriptResult};
-use werkflow_scripting::{EvalAltResult, RegisterResultFn, Script, ScriptHost};
+use werkflow_scripting::{EvalAltResult, RegisterResultFn, RegisterFn, Script, ScriptHost};
 use anyhow::{anyhow,Result};
 
 #[derive(Default)]
@@ -266,7 +267,7 @@ pub struct CommandHost {
 }
 
 impl CommandHost {
-    fn new_ch(filename: &'static str) -> CommandHost {
+    fn new_ch(filename: ImmutableString) -> CommandHost {
         let config = AsyncRunner::block_on(async move {
             read_config(ConfigSource::File(filename.into())).await
         });
@@ -274,7 +275,7 @@ impl CommandHost {
             config: config.unwrap()
         }
     }
-    fn new_ch_web(url: &'static str) -> CommandHost {
+    fn new_ch_web(url: ImmutableString) -> CommandHost {
         let config = AsyncRunner::block_on(async move {
             read_config(ConfigSource::Http(HttpAction::Get(url.into()))).await
         });
@@ -286,13 +287,17 @@ impl CommandHost {
         if let Some(dns_cfg) = &self.config.dns {
             let provider = DnsProvider::new(&dns_cfg.api_key).unwrap();
 
-            AsyncRunner::block_on(async move {
-                provider.add_or_replace(&zone, &record).await.unwrap();
+            let result = AsyncRunner::block_on(async move {
+                provider.add_or_replace(&zone, &record).await
             });
+
+            match result {
+                Ok(_) => Ok(to_dynamic("").unwrap()),
+                Err(err) => Err(Box::new(EvalAltResult::ErrorRuntime(format!("Error adding record {}", err))))
+            }
         } else {
             warn!("Could not find dns configuration, cannot add dns record");
         }
-        Ok(to_dynamic("").unwrap())
     }
 }
 
@@ -319,8 +324,8 @@ impl Workload {
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
         sh.engine.register_type::<CommandHost>();
-        sh.engine.register_result_fn("config", CommandHost::new_ch);
-        sh.engine.register_result_fn("config_web", CommandHost::new_ch_web);
+        sh.engine.register_fn("config", CommandHost::new_ch);
+        sh.engine.register_fn("config_web", CommandHost::new_ch_web);
         sh.engine.register_result_fn("add_record", CommandHost::dns_add_record);
         sh.engine.register_result_fn("get", http::get);
         sh.engine.register_result_fn("post", http::post);
