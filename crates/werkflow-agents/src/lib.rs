@@ -1,7 +1,12 @@
+use core::future::Future;
 use anyhow::{anyhow, Result};
+use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
 use config::Config;
 use crossbeam_channel::{Receiver, Sender};
+use log::{debug, info};
+use threads::AsyncRunner;
+use async_trait::async_trait;
 use std::{collections::HashMap, fmt::Debug};
 use std::{
     sync::{Arc},
@@ -21,6 +26,10 @@ pub mod threads;
 pub mod web;
 pub mod work;
 
+pub mod channels {
+    pub const AGENT_CHANNEL :&'static str = "Agent"; 
+}
+
 // Configuration
 
 lazy_static! {
@@ -35,7 +44,7 @@ impl<'a> Default for Agent {
             state: AgentState::Stopped,
             work_handles: Vec::default(),
             runtime: Arc::new(Runtime::new().unwrap()),
-            hub: Arc::new(RwLock::new(Default::default())),
+            hub: Arc::new(RwLock::new(Hub::new())),
         };
 
         agt
@@ -85,19 +94,37 @@ impl AgentHandle {
         }
     }
 
-    pub fn with_read<F>(&self, closure: F)
+    pub async fn spawn<T : Future<Output = ()> + Sync + Send + 'static>(&self, task : T) {
+        let handle = self.handle.clone();
+        let agent = handle.read().await;
+        agent.runtime.spawn(task);
+    }
+
+    pub async fn send(&self, event : AgentEvent) -> Result<()> {
+        let agent = self.handle.read().await;
+        let mut hub = agent.hub.write().await;
+        let channel = hub.get_or_create(AGENT_CHANNEL);
+        
+        channel
+            .sender
+            .send(event)
+            .map_err(|err| anyhow!("{}", err))?;
+
+        Ok(())
+    }
+
+    pub fn with_read<F>(&mut self, closure: F)
     where
-        F: FnOnce(&RwLockReadGuard<Agent>) + Sync + Send + 'static,
+        F: FnOnce(&mut RwLockReadGuard<Agent>) + Sync + Send + 'static,
     {
         let handle = self.handle.clone();
 
         let _ = async_std::task::block_on(tokio::task::spawn_blocking(move || {
-            let agent = async_std::task::block_on(handle.read());
-            closure(&agent);
+            let mut agent = async_std::task::block_on(handle.read());
+            closure(&mut agent);
             drop(agent);
         }));
     }
-
     /// Run a closure with write access to the agent.
     /// This function can be used in a non-async context, async_std::task::block_on isn't friendly with tokio it seems.
     /// So I've had to wrap it into a spawn_blocking. Ugly, there's probably a better way, and will be investigating if there.
@@ -139,9 +166,9 @@ impl AgentHandle {
 
         for f in &agent.features {
             let feature_name = f.handle.read().await.name();
-            println!("Starting {}", feature_name);
+            info!("Starting {}", feature_name);
 
-            let (rx, tx) = self.get_channel("work").await;
+            let (rx, tx) = self.get_channel(AGENT_CHANNEL).await;
             let feature_handle = f.handle.clone();
 
             f.handle.write().await.init(self.clone());
@@ -153,9 +180,9 @@ impl AgentHandle {
                         .map_err(|err| anyhow!("Error receiving message: {}", err));
 
                     if let Ok(message) = message {
-                        println!("Writing event to feature");
+                        debug!("Writing event to feature");
                         feature_handle.write().await.on_event(message.clone());
-                        println!("Done writing event to feature");
+                        debug!("Done writing event to feature");
                     }
                 }
             });
@@ -218,7 +245,7 @@ pub struct Agent {
     runtime: Arc<Runtime>,
     features: Vec<FeatureHandle>,
     state: AgentState,
-    hub: Arc<RwLock<Hub>>,
+    hub: Arc<RwLock<Hub<AgentEvent>>>,
     work_handles: Vec<Arc<RwLock<WorkloadHandle>>>,
 }
 
@@ -241,30 +268,29 @@ impl Agent {
         self.state
     }
 
-    pub async fn command(&mut self, cmd: AgentCommand) {
-        match cmd {
-            AgentCommand::Start => {
-                self.state = AgentState::Ok;
-                let _ = self
+    pub async fn command(&mut self, cmd: AgentCommand) -> Result<()>{
+        let channel = self
                     .hub
                     .write()
                     .await
-                    .get_or_create("work")
+                    .get_or_create(AGENT_CHANNEL);
+        match cmd {
+            AgentCommand::Start => {
+                self.state = AgentState::Ok;
+                channel
                     .sender
-                    .send(AgentEvent::Started);
+                    .send(AgentEvent::Started)?;
             }
             AgentCommand::Schedule(_, _) => {}
             AgentCommand::Stop => {
                 self.state = AgentState::Stopped;
-                let _ = self
-                    .hub
-                    .write()
-                    .await
-                    .get_or_create("work")
+                channel
                     .sender
-                    .send(AgentEvent::Stopped);
+                    .send(AgentEvent::Stopped)?;
             }
         }
+
+        Ok(())
     }
 
     /// Run a workload and return a Sync + Send version of a handle
@@ -302,9 +328,11 @@ pub enum AgentMessage {
     Do(&'static str),
 }
 
+/// An agent feature. Features must be sync / send and handle events sent by the agent.
+#[async_trait]
 pub trait Feature: Send + Sync {
     //type Feature;
     fn init(&mut self, agent: AgentHandle);
-    fn on_event(&mut self, event: AgentEvent);
+    async fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;
 }

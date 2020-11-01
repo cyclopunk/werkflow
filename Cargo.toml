@@ -16,6 +16,7 @@ reqwest = "0.10.8"
 
 anyhow = "1.0.33"
 clap = "2.33.3"
+async-trait = "0.1.41"
 
 [workspace]
 

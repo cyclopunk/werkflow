@@ -37,22 +37,27 @@ impl Display for AgentEvent {
     }
 }
 #[derive(Clone)]
-pub struct ChannelPair {
+pub struct ChannelPair <T> where T : Send + Sync + Clone {
     pub name: String,
-    pub sender: Sender<AgentEvent>,
-    pub receiver: Receiver<AgentEvent>,
+    pub sender: Sender<T>,
+    pub receiver: Receiver<T>,
 }
 
 #[derive(Default)]
-pub struct Hub {
-    pub channels: HashMap<String, ChannelPair>,
+pub struct Hub <T>  where T : Send + Sync + Clone {
+    pub channels: HashMap<String, ChannelPair<T>>,
 }
 
-impl Hub {
-    pub fn new_channel(&mut self, name: &str) -> ChannelPair {
-        let (s, r) = unbounded::<AgentEvent>();
+impl <T> Hub <T> where T : Send + Sync + Clone {
+    pub fn new() -> Hub<T> {
+        Hub {
+            channels: HashMap::new()
+        }
+    }
+    pub fn new_channel(&mut self, name: &str) -> ChannelPair<T> {
+        let (s, r) = unbounded::<T>();
 
-        let channel_pair = ChannelPair {
+        let channel_pair = ChannelPair::<T> {
             name: name.to_string(),
             sender: s,
             receiver: r,
@@ -63,7 +68,7 @@ impl Hub {
         channel_pair
     }
 
-    pub fn get_or_create(&mut self, name: &str) -> ChannelPair {
+    pub fn get_or_create(&mut self, name: &str) -> ChannelPair<T> {
         if let Some(chan) = self.channels.get(&name.to_string()) {
             chan.clone()
         } else {

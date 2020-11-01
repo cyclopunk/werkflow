@@ -1,4 +1,6 @@
+use crate::AsyncRunner;
 use std::convert::Infallible;
+use async_trait::async_trait;
 
 use anyhow::anyhow;
 
@@ -172,7 +174,7 @@ mod handlers {
         Ok(format!("The agent has been stopped."))
     }
     pub async fn start_agent(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        agent
+        let _ = agent
             .handle
             .write()
             .await
@@ -189,7 +191,7 @@ pub struct WebFeature {
     agent: Option<AgentHandle>,
 }
 
-impl<'a> WebFeature {
+impl WebFeature {
     pub fn new(config: FeatureConfig) -> FeatureHandle {
         FeatureHandle::new(WebFeature {
             config: config.clone(),
@@ -199,6 +201,7 @@ impl<'a> WebFeature {
     }
 }
 
+#[async_trait]
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentHandle) {
         self.agent = Some(agent.clone());
@@ -208,7 +211,7 @@ impl Feature for WebFeature {
         return format!("Web Feature (running on port {})", self.config.bind_port).to_string();
     }
 
-    fn on_event(&mut self, event: AgentEvent) {
+    async fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
                 let agent = self.agent.clone().unwrap();
@@ -231,9 +234,7 @@ impl Feature for WebFeature {
                     },
                 );
 
-                agent.with_read(|f| {
-                    f.runtime.spawn(srv);
-                });
+                agent.spawn(srv).await;
             }
             AgentEvent::Stopped => {
                 if let Some(signal) = self.shutdown.take() {

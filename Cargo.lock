@@ -3739,6 +3739,7 @@ name = "werkflow"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "reqwest 0.10.8",
  "tokio 0.2.22",
@@ -3753,6 +3754,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
+ "async-trait",
  "config",
  "crossbeam-channel 0.5.0",
  "custom_error",
@@ -3768,6 +3770,8 @@ dependencies = [
  "tokio 0.2.22",
  "tokio-test",
  "warp",
+ "werkflow-config",
+ "werkflow-core",
  "werkflow-datalayer",
  "werkflow-scripting",
 ]

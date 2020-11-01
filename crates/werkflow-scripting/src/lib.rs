@@ -1,3 +1,4 @@
+use rhai::Scope;
 use std::fmt;
 pub use rhai::serde::*;
 
@@ -17,8 +18,9 @@ impl Script {
         };
     }
 }
-pub struct ScriptHost {
+pub struct ScriptHost <'a> {
     pub engine: Engine,
+    pub scope: Scope<'a>
 }
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub struct ScriptHostError {
@@ -59,9 +61,11 @@ impl ScriptResult {
     }
 }
 
-impl ScriptHost {
-    pub fn new() -> ScriptHost {
+impl <'a> ScriptHost <'a> {
+    pub fn new() -> ScriptHost <'a> {
+        
         ScriptHost {
+            scope:  Scope::new(),
             engine: Engine::new(),
         }
     }

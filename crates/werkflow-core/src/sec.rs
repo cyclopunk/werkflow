@@ -4,7 +4,7 @@ use cloudflare::framework::auth::Credentials;
 use anyhow::{anyhow, Result};
 use dns::ListDnsRecords;
 
-struct DnsProvider {
+pub struct DnsProvider {
     client: Client
 }
 
@@ -17,14 +17,16 @@ pub enum Zone {
 #[derive(Clone,Debug)]
 pub enum ZoneRecord {
     A(String, String),
+    ProxiedA(String, String),
     TXT(String, String),
     // already existing records
     Id(String),
     Name(String)
 }
 
+/// Implementation of a DNS provider using Cloudflare 
 impl DnsProvider {
-    fn new(api_token: &str) -> Result<DnsProvider>{
+    pub fn new(api_token: &str) -> Result<DnsProvider>{
         let creds = Credentials::UserAuthToken {
             token: api_token.to_string(),
         };
@@ -61,11 +63,13 @@ impl DnsProvider {
             }
         }
     }
+
     async fn get_record_id(&self, zone: &Zone, record : &ZoneRecord) -> Result<String> {
 
         let name = match record {
             ZoneRecord::Id(id) => { return Ok(id.clone()) }            
-            ZoneRecord::A(name, _) => { Some(name.clone()) }
+            ZoneRecord::A(name, _) => { Some(name.clone()) }       
+            ZoneRecord::ProxiedA(name, _) => { Some(name.clone()) }
             ZoneRecord::TXT(name, _) => { Some(name.clone()) }
             ZoneRecord::Name(name) => {Some(name.clone()) }
         };
@@ -84,7 +88,8 @@ impl DnsProvider {
             None => Err(anyhow!("Error getting zone record."))
         }
     }
-    async fn delete_record(&self, zone: &Zone, record : &ZoneRecord) -> Result<String> {
+
+    pub async fn delete_record(&self, zone: &Zone, record : &ZoneRecord) -> Result<String> {
         let id = self.get_record_id(zone, record).await?;
 
         let api_result  = self.client.request(&DeleteDnsRecord {
@@ -95,7 +100,7 @@ impl DnsProvider {
         Ok("Record deleted".into())
     }
 
-    async fn add_or_replace(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
+    pub async fn add_or_replace(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
         println!("Adding {:?} to {:?}", zone, record);
         let looked_up_zone = self.get_id(zone).await?;
         
@@ -111,6 +116,15 @@ impl DnsProvider {
                 },
                 priority: None,
                 proxied: None,
+                ttl: None,
+            },
+            ZoneRecord::ProxiedA(host, ip) => dns::CreateDnsRecordParams {
+                name: &host,
+                content: dns::DnsContent::A {
+                    content: ip.parse()?
+                },
+                priority: None,
+                proxied: Some(true),
                 ttl: None,
             },
             ZoneRecord::TXT(name, txt) => dns::CreateDnsRecordParams {
@@ -142,6 +156,8 @@ struct CertificateProvider {
     account: Account
 }
 
+/// Certificate provider implemented with LetsEncrypt
+
 impl CertificateProvider {
     async fn new(provider: DnsProvider, email : &str, domain_name: &str) -> Result<CertificateProvider> {
         use acme2_slim::Directory;
@@ -160,23 +176,25 @@ impl CertificateProvider {
             .map_err(|err| anyhow!("Error creating LetsEncrypt Order {}", err))?;
 
         for challenge in order.get_dns_challenges() {
-            if challenge.ctype() == "dns-01" {
-                let signature = challenge.signature()
-                    .map_err(|err| anyhow!("Could not get signature. {}", err))?;
+            let signature = challenge.signature()
+                .map_err(|err| anyhow!("Could not get signature. {}", err))?;
 
-                provider.add_or_replace(&Zone::ByName(domain_name.into()), &ZoneRecord::TXT(format!("_acme-challenge.{}", domain_name).into(), signature)).await?;
+            provider
+                .add_or_replace(&Zone::ByName(domain_name.into()), &ZoneRecord::TXT(format!("_acme-challenge.{}", domain_name).into(), signature))
+                .await?;
 
-                challenge.validate(&account)
-                    .map_err(|err| anyhow!("Validation failed {}", err))?;
+            challenge.validate(&account)
+                .map_err(|err| anyhow!("Validation failed {}", err))?;
 
-                let signer = account.certificate_signer();
+            let signer = account.certificate_signer();
 
-                let cert = signer.sign_certificate(&order).unwrap();
-                cert.save_signed_certificate(format!("certs/{}.pem", domain_name))
-                    .map_err(|err| anyhow!("Could not save signed certificate. {}", err))?;
-                cert.save_private_key(format!("certs/{}.key", domain_name))
-                    .map_err(|err| anyhow!("Could not save private key. {}", err))?;
-            }
+            let cert = signer.sign_certificate(&order).unwrap();
+
+            cert.save_signed_certificate(format!("certs/{}.pem", domain_name))
+                .map_err(|err| anyhow!("Could not save signed certificate. {}", err))?;
+            cert.save_private_key(format!("certs/{}.key", domain_name))
+                .map_err(|err| anyhow!("Could not save private key. {}", err))?;
+            
         }
 
         Ok(CertificateProvider {
