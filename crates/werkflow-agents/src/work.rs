@@ -1,4 +1,4 @@
-use werkflow_scripting::ImmutableString;
+use werkflow_scripting::{ImmutableString, Position};
 use werkflow_config::ConfigSource;
 use crate::cfg::AgentConfiguration;
 use crate::AsyncRunner;
@@ -293,10 +293,12 @@ impl CommandHost {
 
             match result {
                 Ok(_) => Ok(to_dynamic("").unwrap()),
-                Err(err) => Err(Box::new(EvalAltResult::ErrorRuntime(format!("Error adding record {}", err))))
+                Err(err) => Err(
+                    Box::new(EvalAltResult::ErrorRuntime(format!("Error adding record {}", err).into(), Position::none()))
+                )
             }
         } else {
-            warn!("Could not find dns configuration, cannot add dns record");
+           Err(Box::new(EvalAltResult::ErrorRuntime(format!("Could not find dns configuration").into(), Position::none())))
         }
     }
 }
@@ -318,25 +320,28 @@ impl Workload {
     }
 
     pub async fn run(&self) -> Result<String> {
-        let mut sh = ScriptHost::new();
+        let mut script_host = ScriptHost::new();
 
         self.agent_handle.send(AgentEvent::WorkStarted(self.clone())).await?;
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
-        sh.engine.register_type::<CommandHost>();
-        sh.engine.register_fn("config", CommandHost::new_ch);
-        sh.engine.register_fn("config_web", CommandHost::new_ch_web);
-        sh.engine.register_result_fn("add_record", CommandHost::dns_add_record);
-        sh.engine.register_result_fn("get", http::get);
-        sh.engine.register_result_fn("post", http::post);
+        
+        script_host.with_engine (|e| {
+            e.register_type::<CommandHost>();
+            e.register_fn("config", CommandHost::new_ch);
+            e.register_fn("config_web", CommandHost::new_ch_web);
+            e.register_result_fn("add_record", CommandHost::dns_add_record);
+            e.register_result_fn("get", http::get);
+            e.register_result_fn("post", http::post);
+        });
 
         trace!("Executing script");
-        match sh.execute(self.script.clone()).await {
+
+        match script_host.execute(self.script.clone()).await {
             Ok(result) => {
-                trace!("Done executing script");
+                println!("Done executing script {:?}", result);
                 Ok(
-                    serde_json::to_string(&SerializableField::from_dynamic(result.underlying))
-                        .unwrap(),
+                    result.underlying.to_string()
                 )
             }
             _ => {
@@ -387,10 +392,9 @@ mod test {
         )
     }
 
-    #[test]
-    fn test_stuff() {
-        let runtime = Runtime::new().unwrap();
-        let agent = AgentHandle::new_runtime("Test Agent", runtime);
+    #[tokio::test(threaded_scheduler)]
+    async fn test_stuff() {
+        let agent = AgentHandle::new();
 
         let script = Script::new(
             r#"                
@@ -410,10 +414,10 @@ mod test {
         let workload2 = Workload::with_script(agent.clone(), script2);
 
         let user =
-            serde_json::from_str::<User>(&async_std::task::block_on(workload.run()).unwrap())
+            serde_json::from_str::<User>(&workload.run().await.unwrap())
                 .unwrap();
         let user2 =
-            serde_json::from_str::<User>(&async_std::task::block_on(workload2.run()).unwrap())
+            serde_json::from_str::<User>(&workload2.run().await.unwrap())
                 .unwrap();
 
         assert_eq!(11, user.id);

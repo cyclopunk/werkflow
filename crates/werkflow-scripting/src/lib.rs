@@ -22,6 +22,7 @@ pub struct ScriptHost <'a> {
     pub engine: Engine,
     pub scope: Scope<'a>
 }
+
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub struct ScriptHostError {
     file: String,
@@ -70,20 +71,16 @@ impl <'a> ScriptHost <'a> {
         }
     }
 
-    pub fn register_type<T: Sync + Send + Clone + 'static>(&mut self) {
+    pub fn with_engine<T>(&mut self, func : T)
+    where for <'fo> T : FnOnce(&'fo mut Engine) {
+        func(&mut self.engine);
+    }
+
+    pub fn register_type<T: Sync + Send + Clone + 'static>(&'a mut self) {
         self.engine.register_type::<T>();
     }
-    pub fn register_str_function(&mut self, name: &str, f: fn() -> String) {
-        self.engine.register_fn(name, f);
-    }
-    pub fn register_dynamic_function(
-        &mut self,
-        name: &str,
-        f: fn() -> Result<Dynamic, Box<EvalAltResult>>,
-    ) {
-        self.engine.register_result_fn(name, f);
-    }
-    pub async fn execute(&self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+ 
+    pub async fn execute(&'a self, script: Script) -> Result<ScriptResult, ScriptHostError> {
         println!("Start running script in Script Host");
         let d = self.engine.eval::<Dynamic>(&script.body);
 
@@ -127,19 +124,6 @@ mod tests {
     }
     #[test]
     fn script_host() {
-        let mut runtime = Runtime::new().unwrap();
-        let mut host = ScriptHost::new();
-        host.register_dynamic_function("test", test);
-
-        init();
-
-        let result = runtime
-            .block_on(host.execute(Script {
-                body: r#" test() "#.to_string(),
-            }))
-            .unwrap();
-
-        info!("Running test");
-        assert_eq!(User { id: 1 }, result.into());
+       
     }
 }
