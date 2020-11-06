@@ -4,7 +4,7 @@ use redis::{Connection, RedisResult};
 fn connect(connection_string : &str) -> RedisResult<Connection> {
     let client = redis::Client::open(connection_string)?;
 
-    let mut con = client.get_connection()?;
+    let con = client.get_connection()?;
     /* do something here */
 
     Ok(con)

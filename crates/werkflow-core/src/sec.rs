@@ -92,7 +92,7 @@ impl DnsProvider {
     pub async fn delete_record(&self, zone: &Zone, record : &ZoneRecord) -> Result<String> {
         let id = self.get_record_id(zone, record).await?;
 
-        let api_result  = self.client.request(&DeleteDnsRecord {
+        let _api_result  = self.client.request(&DeleteDnsRecord {
             zone_identifier: &self.get_id(zone).await?,
             identifier: &id
         }).await?;
@@ -104,7 +104,7 @@ impl DnsProvider {
         println!("Adding {:?} to {:?}", zone, record);
         let looked_up_zone = self.get_id(zone).await?;
         
-        if let Ok(record_id) = self.get_record_id(zone, record).await {
+        if let Ok(_record_id) = self.get_record_id(zone, record).await {
             self.delete_record(zone, record).await?;
         }
 
@@ -219,7 +219,7 @@ mod test {
     use config::File;
     use config::Config;
     use anyhow::{Result, anyhow};
-    use super::{CertificateProvider, DnsProvider, Zone, ZoneRecord};
+    use super::{CertificateProvider, DnsProvider};
 
     #[tokio::test(threaded_scheduler)]
     async fn test() -> Result<()> {      

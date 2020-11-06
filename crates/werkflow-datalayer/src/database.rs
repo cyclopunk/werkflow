@@ -29,7 +29,7 @@ pub struct DataSourceConfig {
 
 #[cfg(test)]
 mod tests {
-        use crate::database::DatabaseConfig;
+        
 use werkflow_config::{ConfigSource, read_config};
 
     use super::DataSourceConfig;
@@ -51,7 +51,7 @@ use werkflow_config::{ConfigSource, read_config};
         nodes=[]
         "#
         .trim_start_matches(" ");
-        let cfg : DataSourceConfig = read_config(ConfigSource::String(config_file.into())).await?;
+        let _cfg : DataSourceConfig = read_config(ConfigSource::String(config_file.into())).await?;
         
 
         Ok(())

@@ -1,5 +1,5 @@
 use amiquip::AmqpProperties;
-use crossbeam_channel::{Receiver, SendError};
+use crossbeam_channel::{Receiver};
 use crossbeam_channel::Sender;
 use amiquip::{ConsumerMessage, ConsumerOptions, Queue};
 use log::{info, trace};
@@ -12,7 +12,7 @@ use async_std::sync::Arc;
 use std::marker::PhantomData;
 
 use serde::Serialize;
-use tokio::{task::JoinHandle, sync::RwLock};
+use tokio::{sync::RwLock};
 use anyhow::{anyhow, Result};
 
 pub enum Message <T> where T : Serialize {
@@ -123,7 +123,7 @@ impl <'a, T> MessageQueue<T>  where for <'de> T : Serialize + Deserialize<'de> +
             let consumer = queue.consume(ConsumerOptions::default())
                 .map_err(|err| anyhow!("Could not consume amqp message: {}", err)).unwrap();
 
-            for (i, message) in consumer.receiver().iter().enumerate() {
+            for (_i, message) in consumer.receiver().iter().enumerate() {
                 match message {
                     ConsumerMessage::Delivery(delivery) => {
                         let dev = delivery.body.clone();
@@ -143,13 +143,13 @@ impl <'a, T> MessageQueue<T>  where for <'de> T : Serialize + Deserialize<'de> +
                             serde_json::from_str(body.as_ref()).unwrap()
                         };
                         
-                        consumer.ack(delivery).unwrap_or_else(|o| trace!("Could not acknowledge message."));
+                        consumer.ack(delivery).unwrap_or_else(|_o| trace!("Could not acknowledge message."));
 
                         let clone: T  = result.clone();
 
                         processor(result);
                         msg_tx2.clone().send(clone)
-                            .unwrap_or_else(|o| info!("Could not send message to channel."));
+                            .unwrap_or_else(|_o| info!("Could not send message to channel."));
                         
                     }
                     other => {
@@ -186,7 +186,7 @@ impl <'a, T> MessageQueue<T>  where for <'de> T : Serialize + Deserialize<'de> +
 
 #[cfg(test)]
 mod test {
-    use log::debug;
+    
 
     use super::{Result, Serialize, Deserialize, MessageQueue, Message};
     
@@ -202,7 +202,7 @@ mod test {
             println!("Got message : {:?}", msg);
         }).await;
 
-        let result = mp.publish(Message::AsBytes("test_queue".into(), TestMessage {
+        let _result = mp.publish(Message::AsBytes("test_queue".into(), TestMessage {
             msg: "Hello!".into()
         })).await?;
 

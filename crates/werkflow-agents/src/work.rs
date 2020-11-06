@@ -5,9 +5,9 @@ use crate::AsyncRunner;
 use werkflow_config::read_config;
 use werkflow_core::{HttpAction, sec::{DnsProvider, Zone}};
 use werkflow_core::sec::ZoneRecord;
-use crate::AGENT_CHANNEL;
-use custom_error::custom_error;
-use log::{error, trace, warn};
+
+
+use log::{error, trace};
 use rand::Rng;
 use serde::{
     ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer},
@@ -394,7 +394,7 @@ mod test {
 
     #[tokio::test(threaded_scheduler)]
     async fn test_stuff() {
-        let agent = AgentController::new();
+        let agent = AgentController::new("Test Agent".into());
 
         let script = Script::new(
             r#"                

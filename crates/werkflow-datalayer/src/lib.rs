@@ -18,10 +18,10 @@ use cdrs::cluster::{ClusterTcpConfig, NodeTcpConfigBuilder};
 
 use cdrs::load_balancing::RoundRobin;
 use cdrs::query::*;
-use config::Config;
-use lazy_static::*;
-use parking_lot::RwLock;
-use serde::Deserialize;
+
+
+
+
 
 mod database;
 mod cache;
@@ -156,10 +156,10 @@ struct NoValue {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    
 use super::*;
     
-    use cdrs::types::prelude::*;
+    
     use cdrs::frame::IntoBytes;
     use cdrs::types::from_cdrs::FromCDRSByName;
     #[derive(Clone, Debug, TryFromRow, TryFromUDT, IntoCDRSValue, PartialEq, Default)]

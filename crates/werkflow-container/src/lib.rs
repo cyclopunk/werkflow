@@ -1,11 +1,11 @@
 use std::path::Path;
 use bollard::{ClientVersion, Docker};
-use anyhow::{anyhow, Result};
-use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions};
+use anyhow::{Result};
+use bollard::container::{Config, CreateContainerOptions, StartContainerOptions};
 use bollard::image::CreateImageOptions;
 
 
-use futures_util::stream::{TryStreamExt, select};
+use futures_util::stream::{TryStreamExt};
 
 const DEFAULT_TIMEOUT : u64 = 60;
 pub const API_DEFAULT_VERSION: &ClientVersion = &ClientVersion {

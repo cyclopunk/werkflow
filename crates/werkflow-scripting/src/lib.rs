@@ -94,7 +94,7 @@ impl ScriptResult {
             }
         } else {
             from_dynamic::<T>(&self.underlying)
-                .map_err(|err| ScriptHostError {
+                .map_err(|_err| ScriptHostError {
                     error_text:format!("Could not deserialize {} into struct", bare_str).into(),
                     ..Default::default()
                 })            
@@ -143,9 +143,9 @@ impl <'a> ScriptHost <'a> {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    use log::info;
+    
     use std::sync::Once;
-    use tokio::runtime::Runtime;
+    
 
     static START: Once = Once::new();
 
