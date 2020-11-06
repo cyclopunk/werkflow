@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use config::*;
-use serde::{Deserialize};
+use serde::Deserialize;
 
 use werkflow_core::HttpAction;
 
@@ -92,7 +92,7 @@ where
         .text()
         .await
         .map_err(|err| anyhow!("Could not make the result text, {}", err))?;
-        
+
     let mut config = Config::new();
 
     config

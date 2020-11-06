@@ -1,7 +1,4 @@
-use crate::{
-    work::{Workload},
-    WorkloadData
-};
+use crate::{work::Workload, WorkloadData};
 use core::fmt::Display;
 use std::collections::HashMap;
 
@@ -37,21 +34,30 @@ impl Display for AgentEvent {
     }
 }
 #[derive(Clone)]
-pub struct ChannelPair <T> where T : Send + Sync + Clone {
+pub struct ChannelPair<T>
+where
+    T: Send + Sync + Clone,
+{
     pub name: String,
     pub sender: Sender<T>,
     pub receiver: Receiver<T>,
 }
 
 #[derive(Default)]
-pub struct Hub <T>  where T : Send + Sync + Clone {
+pub struct Hub<T>
+where
+    T: Send + Sync + Clone,
+{
     pub channels: HashMap<String, ChannelPair<T>>,
 }
 
-impl <T> Hub <T> where T : Send + Sync + Clone {
+impl<T> Hub<T>
+where
+    T: Send + Sync + Clone,
+{
     pub fn new() -> Hub<T> {
         Hub {
-            channels: HashMap::new()
+            channels: HashMap::new(),
         }
     }
     pub fn new_channel(&mut self, name: &str) -> ChannelPair<T> {

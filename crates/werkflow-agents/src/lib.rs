@@ -1,16 +1,14 @@
-use core::future::Future;
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
 use config::Config;
+use core::future::Future;
 use crossbeam_channel::{Receiver, Sender};
 use log::{debug, info};
-use threads::AsyncRunner;
-use async_trait::async_trait;
+use std::sync::Arc;
 use std::{collections::HashMap, fmt::Debug};
-use std::{
-    sync::{Arc},
-};
+use threads::AsyncRunner;
 use tokio::sync::RwLockWriteGuard;
 
 use lazy_static::*;
@@ -27,7 +25,7 @@ pub mod web;
 pub mod work;
 
 pub mod channels {
-    pub const AGENT_CHANNEL :&'static str = "Agent"; 
+    pub const AGENT_CHANNEL: &'static str = "Agent";
 }
 
 // Configuration
@@ -45,7 +43,7 @@ impl<'a> Default for Agent {
             work_handles: Vec::default(),
             runtime: Arc::new(Runtime::new().unwrap()),
             hub: Arc::new(RwLock::new(Hub::new())),
-            statistics: AgentStatistics::default()
+            statistics: AgentStatistics::default(),
         };
 
         agt
@@ -88,25 +86,24 @@ impl Debug for AgentController {
 }
 
 impl AgentController {
-    pub fn new(name : &str) -> AgentController {
-
+    pub fn new(name: &str) -> AgentController {
         AgentController {
             agent: Arc::new(RwLock::new(Agent::new(name))),
             signal: None,
         }
     }
 
-    pub async fn spawn<T : Future<Output = ()> + Sync + Send + 'static>(&self, task : T) {
+    pub async fn spawn<T: Future<Output = ()> + Sync + Send + 'static>(&self, task: T) {
         let handle = self.agent.clone();
         let agent = handle.read().await;
         agent.runtime.spawn(task);
     }
 
-    pub async fn send(&self, event : AgentEvent) -> Result<()> {
+    pub async fn send(&self, event: AgentEvent) -> Result<()> {
         let agent = self.agent.read().await;
         let mut hub = agent.hub.write().await;
         let channel = hub.get_or_create(AGENT_CHANNEL);
-        
+
         channel
             .sender
             .send(event)
@@ -158,10 +155,7 @@ impl AgentController {
 
                     if let Ok(message) = message {
                         debug!("Writing event to feature");
-                        feature_handle.write()
-                        .await
-                        .on_event(message.clone())
-                        .await;
+                        feature_handle.write().await.on_event(message.clone()).await;
                         debug!("Done writing event to feature");
                     }
                 }
@@ -257,25 +251,17 @@ impl Agent {
         self.state
     }
 
-    async fn command(&mut self, cmd: AgentCommand) -> Result<()>{
-        let channel = self
-                    .hub
-                    .write()
-                    .await
-                    .get_or_create(AGENT_CHANNEL);
+    async fn command(&mut self, cmd: AgentCommand) -> Result<()> {
+        let channel = self.hub.write().await.get_or_create(AGENT_CHANNEL);
         match cmd {
             AgentCommand::Start => {
                 self.state = AgentState::Ok;
-                channel
-                    .sender
-                    .send(AgentEvent::Started)?;
+                channel.sender.send(AgentEvent::Started)?;
             }
             AgentCommand::Schedule(_, _) => {}
             AgentCommand::Stop => {
                 self.state = AgentState::Stopped;
-                channel
-                    .sender
-                    .send(AgentEvent::Stopped)?;
+                channel.sender.send(AgentEvent::Stopped)?;
             }
         }
 

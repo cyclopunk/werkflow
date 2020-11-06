@@ -1,5 +1,3 @@
-
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -29,8 +27,8 @@ pub struct DataSourceConfig {
 
 #[cfg(test)]
 mod tests {
-        
-use werkflow_config::{ConfigSource, read_config};
+
+    use werkflow_config::{read_config, ConfigSource};
 
     use super::DataSourceConfig;
     #[tokio::test(threaded_scheduler)]
@@ -51,8 +49,7 @@ use werkflow_config::{ConfigSource, read_config};
         nodes=[]
         "#
         .trim_start_matches(" ");
-        let _cfg : DataSourceConfig = read_config(ConfigSource::String(config_file.into())).await?;
-        
+        let _cfg: DataSourceConfig = read_config(ConfigSource::String(config_file.into())).await?;
 
         Ok(())
     }

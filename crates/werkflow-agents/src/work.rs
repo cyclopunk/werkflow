@@ -1,28 +1,26 @@
-use werkflow_scripting::{ImmutableString, Position};
-use werkflow_config::ConfigSource;
 use crate::cfg::AgentConfiguration;
 use crate::AsyncRunner;
 use werkflow_config::read_config;
-use werkflow_core::{HttpAction, sec::{DnsProvider, Zone}};
+use werkflow_config::ConfigSource;
 use werkflow_core::sec::ZoneRecord;
-
+use werkflow_core::{
+    sec::{DnsProvider, Zone},
+    HttpAction,
+};
+use werkflow_scripting::{ImmutableString, Position};
 
 use log::{error, trace};
 use rand::Rng;
-use serde::{
-    ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer},
-};
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer};
 use std::collections::HashMap;
 use werkflow_scripting::Map;
 
 use crate::{comm::AgentEvent, AgentController, WorkloadData};
-use std::{
-    fmt::{self, Display},
-};
+use anyhow::{anyhow, Result};
+use std::fmt::{self, Display};
 use tokio::task::JoinHandle;
 use werkflow_scripting::{to_dynamic, Dynamic, ScriptResult};
-use werkflow_scripting::{EvalAltResult, RegisterResultFn, RegisterFn, Script, ScriptHost};
-use anyhow::{anyhow,Result};
+use werkflow_scripting::{EvalAltResult, RegisterFn, RegisterResultFn, Script, ScriptHost};
 
 #[derive(Default)]
 pub struct WorkloadHandle {
@@ -55,7 +53,7 @@ impl WorkloadHandle {
 
 mod http {
     use crate::threads::AsyncRunner;
-    
+
     use super::*;
 
     pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {
@@ -263,16 +261,17 @@ impl Serialize for SerMap {
 
 #[derive(Clone)]
 pub struct CommandHost {
-    config : AgentConfiguration
+    config: AgentConfiguration,
 }
 
 impl CommandHost {
     fn new_ch(filename: ImmutableString) -> CommandHost {
-        let config = AsyncRunner::block_on(async move {
-            read_config(ConfigSource::File(filename.into())).await
-        });
+        let config =
+            AsyncRunner::block_on(
+                async move { read_config(ConfigSource::File(filename.into())).await },
+            );
         CommandHost {
-            config: config.unwrap()
+            config: config.unwrap(),
         }
     }
     fn new_ch_web(url: ImmutableString) -> CommandHost {
@@ -280,25 +279,32 @@ impl CommandHost {
             read_config(ConfigSource::Http(HttpAction::Get(url.into()))).await
         });
         CommandHost {
-            config: config.unwrap()
+            config: config.unwrap(),
         }
     }
-    fn dns_add_record(&self, zone: Zone, record: ZoneRecord) -> Result<Dynamic, Box<EvalAltResult>> {
+    fn dns_add_record(
+        &self,
+        zone: Zone,
+        record: ZoneRecord,
+    ) -> Result<Dynamic, Box<EvalAltResult>> {
         if let Some(dns_cfg) = &self.config.dns {
             let provider = DnsProvider::new(&dns_cfg.api_key).unwrap();
 
-            let result = AsyncRunner::block_on(async move {
-                provider.add_or_replace(&zone, &record).await
-            });
+            let result =
+                AsyncRunner::block_on(async move { provider.add_or_replace(&zone, &record).await });
 
             match result {
                 Ok(_) => Ok(to_dynamic("").unwrap()),
-                Err(err) => Err(
-                    Box::new(EvalAltResult::ErrorRuntime(format!("Error adding record {}", err).into(), Position::none()))
-                )
+                Err(err) => Err(Box::new(EvalAltResult::ErrorRuntime(
+                    format!("Error adding record {}", err).into(),
+                    Position::none(),
+                ))),
             }
         } else {
-           Err(Box::new(EvalAltResult::ErrorRuntime(format!("Could not find dns configuration").into(), Position::none())))
+            Err(Box::new(EvalAltResult::ErrorRuntime(
+                format!("Could not find dns configuration").into(),
+                Position::none(),
+            )))
         }
     }
 }
@@ -322,11 +328,13 @@ impl Workload {
     pub async fn run(&self) -> Result<String> {
         let mut script_host = ScriptHost::new();
 
-        self.agent_handle.send(AgentEvent::WorkStarted(self.clone())).await?;
+        self.agent_handle
+            .send(AgentEvent::WorkStarted(self.clone()))
+            .await?;
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
-        
-        script_host.with_engine (|e| {
+
+        script_host.with_engine(|e| {
             e.register_type::<CommandHost>();
             e.register_fn("config", CommandHost::new_ch);
             e.register_fn("config_web", CommandHost::new_ch_web);
@@ -340,9 +348,7 @@ impl Workload {
         match script_host.execute(self.script.clone()).await {
             Ok(result) => {
                 println!("Done executing script {:?}", result);
-                Ok(
-                    result.underlying.to_string()
-                )
+                Ok(result.underlying.to_string())
             }
             _ => {
                 error!("Error running script");
@@ -357,7 +363,7 @@ mod test {
     use super::*;
     use serde::*;
     use tokio::runtime::Runtime;
-    use werkflow_scripting::{Engine};
+    use werkflow_scripting::Engine;
 
     #[derive(Serialize, Deserialize, PartialEq, Default)]
     #[serde(default)]
@@ -413,12 +419,8 @@ mod test {
         let workload = Workload::with_script(agent.clone(), script);
         let workload2 = Workload::with_script(agent.clone(), script2);
 
-        let user =
-            serde_json::from_str::<User>(&workload.run().await.unwrap())
-                .unwrap();
-        let user2 =
-            serde_json::from_str::<User>(&workload2.run().await.unwrap())
-                .unwrap();
+        let user = serde_json::from_str::<User>(&workload.run().await.unwrap()).unwrap();
+        let user2 = serde_json::from_str::<User>(&workload2.run().await.unwrap()).unwrap();
 
         assert_eq!(11, user.id);
         assert_eq!(1, user2.id);

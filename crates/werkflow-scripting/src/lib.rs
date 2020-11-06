@@ -1,29 +1,29 @@
 use log::debug;
+use rand::prelude::*;
 use rhai::Scope;
 use std::fmt;
-use rand::prelude::*;
 
 pub use rhai::serde::*;
 
-pub use rhai::{Dynamic, Engine, EvalAltResult, Map, Position, RegisterFn, RegisterResultFn, ImmutableString};
-
+pub use rhai::{
+    Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn, RegisterResultFn,
+};
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct ScriptIdentifier {
-    pub id : u128,
-    pub name: String
+    pub id: u128,
+    pub name: String,
 }
 
 impl Into<ScriptIdentifier> for &str {
     fn into(self) -> ScriptIdentifier {
-        
         let mut rng = rand::thread_rng();
 
         ScriptIdentifier {
             id: rng.gen(),
-            name: self.to_string()
+            name: self.to_string(),
         }
     }
 }
@@ -40,16 +40,16 @@ impl Script {
             body: script_body.to_string(),
         };
     }
-    pub fn with_name<T: Into<ScriptIdentifier>> (id : T , script_body: &str) -> Script {
+    pub fn with_name<T: Into<ScriptIdentifier>>(id: T, script_body: &str) -> Script {
         return Script {
             identifier: id.into(),
             body: script_body.to_string(),
         };
     }
 }
-pub struct ScriptHost <'a> {
+pub struct ScriptHost<'a> {
     pub engine: Engine,
-    pub scope: Scope<'a>
+    pub scope: Scope<'a>,
 }
 
 #[derive(PartialEq, Clone, Serialize, Deserialize, Default)]
@@ -93,45 +93,49 @@ impl ScriptResult {
                 Ok(serde_json::from_str(&format!("\"{}\"", bare_str)).unwrap())
             }
         } else {
-            from_dynamic::<T>(&self.underlying)
-                .map_err(|_err| ScriptHostError {
-                    error_text:format!("Could not deserialize {} into struct", bare_str).into(),
-                    ..Default::default()
-                })            
+            from_dynamic::<T>(&self.underlying).map_err(|_err| ScriptHostError {
+                error_text: format!("Could not deserialize {} into struct", bare_str).into(),
+                ..Default::default()
+            })
         }
     }
 }
 
-impl <'a> ScriptHost <'a> {
-    pub fn new() -> ScriptHost <'a> {
-        
+impl<'a> ScriptHost<'a> {
+    pub fn new() -> ScriptHost<'a> {
         ScriptHost {
-            scope:  Scope::new(),
+            scope: Scope::new(),
             engine: Engine::new(),
         }
     }
 
-    pub fn with_engine<T>(&mut self, func : T)
-    where for <'fo> T : FnOnce(&'fo mut Engine) {
+    pub fn with_engine<T>(&mut self, func: T)
+    where
+        for<'fo> T: FnOnce(&'fo mut Engine),
+    {
         func(&mut self.engine);
     }
 
     pub fn register_type<T: Sync + Send + Clone + 'static>(&'a mut self) {
         self.engine.register_type::<T>();
     }
- 
+
     pub async fn execute(&'a self, script: Script) -> Result<ScriptResult, ScriptHostError> {
         debug!("Start running script in Script Host:\n {:?}", script);
 
-        let d = self.engine.eval::<Dynamic>(&script.body)
-            .map_err(|err|
-            ScriptHostError {
+        let d = self
+            .engine
+            .eval::<Dynamic>(&script.body)
+            .map_err(|err| ScriptHostError {
                 error_text: err.to_string(),
                 line: err.position().position().unwrap_or_default(),
-                file: script.identifier.name.clone()
+                file: script.identifier.name.clone(),
             });
 
-        debug!("Done running script {} in Script Host", script.identifier.name);
+        debug!(
+            "Done running script {} in Script Host",
+            script.identifier.name
+        );
 
         Ok(ScriptResult {
             underlying: d.unwrap(),
@@ -139,13 +143,11 @@ impl <'a> ScriptHost <'a> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::*;
-    
+
     use std::sync::Once;
-    
 
     static START: Once = Once::new();
 
@@ -172,30 +174,39 @@ mod tests {
     }
     #[tokio::test(threaded_scheduler)]
     async fn script_host() {
-       init();
-       let sh = ScriptHost::new();
-       let script = r#"
+        init();
+        let sh = ScriptHost::new();
+        let script = r#"
         print ("Hello" + " World");
         "test"
        "#;
 
-       let result = sh.execute(Script::with_name("test script", &script)).await.unwrap();
+        let result = sh
+            .execute(Script::with_name("test script", &script))
+            .await
+            .unwrap();
 
-       assert_eq!("test", result.to::<String>().unwrap_or_default());
+        assert_eq!("test", result.to::<String>().unwrap_or_default());
     }
     #[tokio::test(threaded_scheduler)]
     async fn script_host_adv() {
-       init();
-       let sh = ScriptHost::new();
-       let script = r#"
+        init();
+        let sh = ScriptHost::new();
+        let script = r#"
         print ("Advanced Test");
         #{
             "id": 42
         }
        "#;
 
-       let result = sh.execute(Script::with_name("test script", &script)).await.unwrap();
+        let result = sh
+            .execute(Script::with_name("test script", &script))
+            .await
+            .unwrap();
 
-       assert_eq!(User { id : 42}, result.to::<User>().unwrap_or( User { id: 0 }));
+        assert_eq!(
+            User { id: 42 },
+            result.to::<User>().unwrap_or(User { id: 0 })
+        );
     }
 }

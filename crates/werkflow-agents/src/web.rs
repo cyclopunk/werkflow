@@ -1,13 +1,10 @@
-
-use std::convert::Infallible;
 use async_trait::async_trait;
+use std::convert::Infallible;
 
 use anyhow::anyhow;
 
 use log::info;
-use tokio::sync::{
-    oneshot::{self, Sender}
-};
+use tokio::sync::oneshot::{self, Sender};
 
 //use handlebars::Handlebars;
 
@@ -17,7 +14,7 @@ use crate::{comm::AgentEvent, AgentController, Feature, FeatureConfig, FeatureHa
 
 use self::filters::agent_status;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 mod filters {
     use werkflow_scripting::Script;
@@ -77,18 +74,18 @@ mod filters {
 mod model {
     use super::*;
     #[derive(Serialize, Deserialize)]
-    pub struct JobResult { 
-        pub id : u128,
+    pub struct JobResult {
+        pub id: u128,
         pub status: String,
-        pub result_string : String
+        pub result_string: String,
     }
 
     #[derive(Serialize, Deserialize, Clone)]
     pub struct AgentInformation {
         pub name: String,
-        pub jobs_ran: u32,        
+        pub jobs_ran: u32,
         pub address: String,
-        pub connected_agents: Vec<u32>
+        pub connected_agents: Vec<u32>,
     }
 }
 mod handlers {
@@ -99,7 +96,9 @@ mod handlers {
 
     use super::*;
 
-    pub async fn print_status<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
+    pub async fn print_status<'a>(
+        controller: AgentController,
+    ) -> Result<impl warp::Reply, Infallible> {
         Ok(format!(
             "The current status is: {:?}",
             controller.agent.read().await.status().await
@@ -138,25 +137,27 @@ mod handlers {
                 handle.status = crate::work::WorkloadStatus::Complete;
             }
             drop(handle);
-        });        
+        });
 
         drop(agent);
 
         Ok(format!("Started job {}", id))
     }
-    
-    pub async fn list_jobs<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
+
+    pub async fn list_jobs<'a>(
+        controller: AgentController,
+    ) -> Result<impl warp::Reply, Infallible> {
         let handle = controller.agent.read().await;
-      
+
         let mut vec: Vec<model::JobResult> = Vec::new();
 
         for jh in &handle.work_handles {
             let wh = jh.read().await;
-            
+
             vec.push(model::JobResult {
                 id: wh.id,
                 status: wh.status.to_string(),
-                result_string: wh.result.clone().unwrap_or_default()
+                result_string: wh.result.clone().unwrap_or_default(),
             });
         }
 
@@ -175,14 +176,15 @@ mod handlers {
         Ok(format!("The agent has been stopped."))
     }
     pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-        if let Err(err) =  controller
+        if let Err(err) = controller
             .agent
             .write()
             .await
             .command(AgentCommand::Start)
-            .await {
-                warn!("Error thrown while trying to start agent: {}", err);
-            }
+            .await
+        {
+            warn!("Error thrown while trying to start agent: {}", err);
+        }
 
         Ok(format!("The agent has been started."))
     }
@@ -233,7 +235,7 @@ impl Feature for WebFeature {
                 let (_, srv) = server.bind_with_graceful_shutdown(
                     (self.config.bind_address, self.config.bind_port),
                     async move {
-                        rx.await.ok();                        
+                        rx.await.ok();
                     },
                 );
 

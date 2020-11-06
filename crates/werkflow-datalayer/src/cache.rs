@@ -1,7 +1,7 @@
 use anyhow::*;
 use redis::{Connection, RedisResult};
 
-fn connect(connection_string : &str) -> RedisResult<Connection> {
+fn connect(connection_string: &str) -> RedisResult<Connection> {
     let client = redis::Client::open(connection_string)?;
 
     let con = client.get_connection()?;
@@ -12,21 +12,20 @@ fn connect(connection_string : &str) -> RedisResult<Connection> {
 
 #[cfg(test)]
 mod tests {
-    use werkflow_config::read_config;
     use crate::database::CacheConfig;
+    use werkflow_config::read_config;
 
-    use redis::Commands;
     use super::*;
+    use redis::Commands;
     #[tokio::test(threaded_scheduler)]
     async fn test_read_config() -> Result<(), anyhow::Error> {
-
         let config_file = r#"        
         enabled=true
         host="redis://127.0.0.1:6379/"
         "#;
 
-        let cfg : CacheConfig = read_config(werkflow_config::ConfigSource::String(config_file.into())).await?;
-        
+        let cfg: CacheConfig =
+            read_config(werkflow_config::ConfigSource::String(config_file.into())).await?;
 
         let mut x = connect(&cfg.host)?;
 

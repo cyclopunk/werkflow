@@ -19,18 +19,17 @@ use cdrs::cluster::{ClusterTcpConfig, NodeTcpConfigBuilder};
 use cdrs::load_balancing::RoundRobin;
 use cdrs::query::*;
 
-
-
-
-
-mod database;
 mod cache;
+mod database;
 
 #[path = "events/amqp.rs"]
 mod amqp;
 
 type CassandraSession = Session<RoundRobin<TcpConnectionPool<NoneAuthenticator>>>;
-pub enum Query<T> where T : Into<QueryValues> {
+pub enum Query<T>
+where
+    T: Into<QueryValues>,
+{
     Raw(String),
     RawWithValues(String, T),
 }
@@ -67,9 +66,7 @@ impl DataSource<CassandraSession> {
         let session =
             new_session(&cluster_config, RoundRobin::new()).expect("session should be created");
 
-        Ok(DataSource {
-            source: session,
-        })
+        Ok(DataSource { source: session })
     }
 
     fn init(&mut self) -> &mut DataSource<CassandraSession> {
@@ -104,23 +101,24 @@ impl DataSource<CassandraSession> {
         self
     }
 
-    pub fn query<T : TryFromUDT + std::fmt::Debug + TryFromRow, F: Into<QueryValues>>(&mut self, query: Query<F>) -> Result<Vec<T>> {
+    pub fn query<T: TryFromUDT + std::fmt::Debug + TryFromRow, F: Into<QueryValues>>(
+        &mut self,
+        query: Query<F>,
+    ) -> Result<Vec<T>> {
         let mut vec_of_ts: Vec<T> = Vec::new();
 
         let result = match query {
-            Query::RawWithValues::<F>(q, t) => {
-                    self.source
-                        .query_with_values(q, t)                
-                        .map_err(|err| anyhow!("Could not run query: {}", err))?
-            }
-            Query::Raw(q) => {
-                    self.source
-                        .query(q)
-                        .map_err(|err| anyhow!("Could not run query: {}", err))?              
-            }
+            Query::RawWithValues::<F>(q, t) => self
+                .source
+                .query_with_values(q, t)
+                .map_err(|err| anyhow!("Could not run query: {}", err))?,
+            Query::Raw(q) => self
+                .source
+                .query(q)
+                .map_err(|err| anyhow!("Could not run query: {}", err))?,
         };
 
-        let rows = result            
+        let rows = result
             .get_body()
             .map_err(|err| anyhow!("Could not get body: {}", err))?
             .into_rows();
@@ -136,7 +134,6 @@ impl DataSource<CassandraSession> {
     }
 }
 
-
 macro_rules! map(
     { $($key:expr => $value:expr),+ } => {
         {
@@ -151,30 +148,27 @@ macro_rules! map(
 
 #[derive(Clone, Debug, TryFromRow, TryFromUDT, IntoCDRSValue, PartialEq, Default)]
 struct NoValue {
-    none: i64
+    none: i64,
 }
 
 #[cfg(test)]
 mod tests {
-    
-use super::*;
-    
-    
+
+    use super::*;
+
     use cdrs::frame::IntoBytes;
     use cdrs::types::from_cdrs::FromCDRSByName;
     #[derive(Clone, Debug, TryFromRow, TryFromUDT, IntoCDRSValue, PartialEq, Default)]
     struct User {
-        id : i64,
-        username : String
+        id: i64,
+        username: String,
     }
 
-  
     impl Into<QueryValues> for User {
-        
-        fn into(self) -> QueryValues { 
+        fn into(self) -> QueryValues {
             query_values!("username" => self.username, "id" => self.id)
-         }
-    }    
+        }
+    }
 
     #[tokio::test(threaded_scheduler)]
     async fn test() {
@@ -192,24 +186,37 @@ use super::*;
     
     "#;
 
-        let mut ds : DataSource<CassandraSession> = DataSource::new(werkflow_config::ConfigSource::String(config.into()))
-            .await
-            .unwrap();
+        let mut ds: DataSource<CassandraSession> =
+            DataSource::new(werkflow_config::ConfigSource::String(config.into()))
+                .await
+                .unwrap();
 
         ds.init();
 
         for i in 1..50 {
-            let _ : Vec<User> = ds.query(Query::RawWithValues("insert into user (id, username) values (?,?); ".into(), User { username: "adam".into(), id: i} )).unwrap();
+            let _: Vec<User> = ds
+                .query(Query::RawWithValues(
+                    "insert into user (id, username) values (?,?); ".into(),
+                    User {
+                        username: "adam".into(),
+                        id: i,
+                    },
+                ))
+                .unwrap();
         }
 
         println!("Inserted 50 users");
 
-        let users: Vec<User> = ds.query(Query::RawWithValues("select * from user where id = ?".into(), 
-            map! {"id" => 42 })).unwrap();
+        let users: Vec<User> = ds
+            .query(Query::RawWithValues(
+                "select * from user where id = ?".into(),
+                map! {"id" => 42 },
+            ))
+            .unwrap();
 
-        
         assert_eq!(users.len(), 1);
-        
-        ds.query::<NoValue,User>(Query::Raw("truncate user; ".into())).unwrap();
+
+        ds.query::<NoValue, User>(Query::Raw("truncate user; ".into()))
+            .unwrap();
     }
 }
