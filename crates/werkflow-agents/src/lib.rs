@@ -45,6 +45,7 @@ impl<'a> Default for Agent {
             work_handles: Vec::default(),
             runtime: Arc::new(Runtime::new().unwrap()),
             hub: Arc::new(RwLock::new(Hub::new())),
+            statistics: AgentStatistics::default()
         };
 
         agt
@@ -75,33 +76,34 @@ pub struct FeatureConfig {
 }
 
 #[derive(Clone)]
-pub struct AgentHandle {
-    pub handle: Arc<RwLock<Agent>>,
-    pub signal: Option<Sender<()>>,
+pub struct AgentController {
+    agent: Arc<RwLock<Agent>>,
+    signal: Option<Sender<()>>,
 }
 
-impl Debug for AgentHandle {
+impl Debug for AgentController {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!("Handle for Agent"))
     }
 }
 
-impl AgentHandle {
-    pub fn new() -> AgentHandle {
-        AgentHandle {
-            handle: Arc::new(RwLock::new(Agent::default())),
+impl AgentController {
+    pub fn new(name : &str) -> AgentController {
+
+        AgentController {
+            agent: Arc::new(RwLock::new(Agent::new(name))),
             signal: None,
         }
     }
 
     pub async fn spawn<T : Future<Output = ()> + Sync + Send + 'static>(&self, task : T) {
-        let handle = self.handle.clone();
+        let handle = self.agent.clone();
         let agent = handle.read().await;
         agent.runtime.spawn(task);
     }
 
     pub async fn send(&self, event : AgentEvent) -> Result<()> {
-        let agent = self.handle.read().await;
+        let agent = self.agent.read().await;
         let mut hub = agent.hub.write().await;
         let channel = hub.get_or_create(AGENT_CHANNEL);
         
@@ -113,35 +115,8 @@ impl AgentHandle {
         Ok(())
     }
 
-    pub fn with_read<F>(&mut self, closure: F)
-    where
-        F: FnOnce(&mut RwLockReadGuard<Agent>) + Sync + Send + 'static,
-    {
-        let handle = self.handle.clone();
-
-        let _ = async_std::task::block_on(tokio::task::spawn_blocking(move || {
-            let mut agent = async_std::task::block_on(handle.read());
-            closure(&mut agent);
-            drop(agent);
-        }));
-    }
-    /// Run a closure with write access to the agent.
-    /// This function can be used in a non-async context, async_std::task::block_on isn't friendly with tokio it seems.
-    /// So I've had to wrap it into a spawn_blocking. Ugly, there's probably a better way, and will be investigating if there.
-    pub fn with_write<F>(&mut self, closure: F)
-    where
-        F: FnOnce(&mut RwLockWriteGuard<Agent>) + Sync + Send + 'static,
-    {
-        let handle = self.handle.clone();
-
-        let _ = async_std::task::block_on(tokio::task::spawn_blocking(move || {
-            let mut agent = async_std::task::block_on(handle.write());
-            closure(&mut agent);
-            drop(agent);
-        }));
-    }
     pub async fn get_channel(&self, name: &str) -> (Receiver<AgentEvent>, Sender<AgentEvent>) {
-        let agent = self.handle.read().await;
+        let agent = self.agent.read().await;
 
         let chan = agent.hub.clone().write().await.get_or_create(name);
 
@@ -149,24 +124,26 @@ impl AgentHandle {
 
         (chan.receiver, chan.sender)
     }
-    pub fn new_runtime(name: &str, runtime: Runtime) -> AgentHandle {
-        AgentHandle {
-            handle: Arc::new(RwLock::new(Agent::new_runtime(name, runtime))),
+
+    pub fn with_runtime(name: &str, runtime: Runtime) -> AgentController {
+        AgentController {
+            agent: Arc::new(RwLock::new(Agent::new_runtime(name, runtime))),
             signal: None,
         }
     }
-    pub async fn add_feature(&mut self, handle: FeatureHandle) -> Result<&mut AgentHandle> {
-        self.handle.write().await.features.push(handle);
+
+    pub async fn add_feature(&mut self, handle: FeatureHandle) -> Result<&mut AgentController> {
+        self.agent.write().await.features.push(handle);
 
         Ok(self)
     }
 
     pub async fn start(&mut self) -> Receiver<()> {
-        let agent = self.handle.read().await;
+        let agent = self.agent.read().await;
 
         for f in &agent.features {
             let feature_name = f.handle.read().await.name();
-            info!("Starting {}", feature_name);
+            info!("Starting Feature {}", feature_name);
 
             let (rx, tx) = self.get_channel(AGENT_CHANNEL).await;
             let feature_handle = f.handle.clone();
@@ -181,7 +158,10 @@ impl AgentHandle {
 
                     if let Ok(message) = message {
                         debug!("Writing event to feature");
-                        feature_handle.write().await.on_event(message.clone());
+                        feature_handle.write()
+                        .await
+                        .on_event(message.clone())
+                        .await;
                         debug!("Done writing event to feature");
                     }
                 }
@@ -201,7 +181,7 @@ impl AgentHandle {
 
         drop(agent);
 
-        self.handle.write().await.state = AgentState::Ok;
+        self.agent.write().await.state = AgentState::Ok;
 
         let (rx, tx) = crossbeam_channel::bounded::<()>(1);
 
@@ -240,35 +220,44 @@ impl FeatureHandle {
         callback(&self.handle.read().await);
     }
 }
-pub struct Agent {
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AgentStatistics {
+    jobs_ran: u32,
+    failed_jobs: u32,
+    total_runtime: u64,
+}
+
+struct Agent {
     name: String,
     runtime: Arc<Runtime>,
     features: Vec<FeatureHandle>,
     state: AgentState,
+    statistics: AgentStatistics,
     hub: Arc<RwLock<Hub<AgentEvent>>>,
     work_handles: Vec<Arc<RwLock<WorkloadHandle>>>,
 }
 
 impl Agent {
-    pub fn new(name: &str) -> Agent {
+    fn new(name: &str) -> Agent {
         Agent {
             name: name.to_string(),
             runtime: Arc::new(Runtime::new().unwrap()),
             ..Default::default()
         }
     }
-    pub fn new_runtime(name: &str, runtime: Runtime) -> Agent {
+    fn new_runtime(name: &str, runtime: Runtime) -> Agent {
         Agent {
             name: name.to_string(),
             runtime: Arc::new(runtime),
             ..Default::default()
         }
     }
-    pub async fn status(&self) -> AgentState {
+    async fn status(&self) -> AgentState {
         self.state
     }
 
-    pub async fn command(&mut self, cmd: AgentCommand) -> Result<()>{
+    async fn command(&mut self, cmd: AgentCommand) -> Result<()>{
         let channel = self
                     .hub
                     .write()
@@ -292,11 +281,6 @@ impl Agent {
 
         Ok(())
     }
-
-    /// Run a workload and return a Sync + Send version of a handle
-    /// That has information about that workload.
-    ///
-    /// This will also add the workload handle to the agent's workload handle vector.
 
     fn run(&mut self, workload: Workload) -> Arc<RwLock<WorkloadHandle>> {
         let id = workload.id;
@@ -332,7 +316,7 @@ pub enum AgentMessage {
 #[async_trait]
 pub trait Feature: Send + Sync {
     //type Feature;
-    fn init(&mut self, agent: AgentHandle);
+    fn init(&mut self, agent: AgentController);
     async fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;
 }

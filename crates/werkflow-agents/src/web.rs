@@ -13,7 +13,7 @@ use tokio::sync::{
 
 use warp::Filter;
 
-use crate::{comm::AgentEvent, AgentHandle, Feature, FeatureConfig, FeatureHandle};
+use crate::{comm::AgentEvent, AgentController, Feature, FeatureConfig, FeatureHandle};
 
 use self::filters::agent_status;
 
@@ -22,18 +22,18 @@ use serde::{Serialize, Deserialize};
 mod filters {
     use werkflow_scripting::Script;
 
-    use crate::AgentHandle;
+    use crate::AgentController;
 
     use super::*;
 
     fn with_agent(
-        agent: AgentHandle,
-    ) -> impl Filter<Extract = (AgentHandle,), Error = std::convert::Infallible> + Clone {
+        agent: AgentController,
+    ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
         warp::any().map(move || agent.clone())
     }
 
     pub fn agent_status(
-        agent: AgentHandle,
+        agent: AgentController,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("status")
             .and(warp::get())
@@ -41,7 +41,7 @@ mod filters {
             .and_then(handlers::print_status)
     }
     pub fn start_job(
-        agent: AgentHandle,
+        agent: AgentController,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("run")
             .and(warp::post())
@@ -50,7 +50,7 @@ mod filters {
             .and_then(handlers::start_job)
     }
     pub fn stop_agent(
-        agent: AgentHandle,
+        agent: AgentController,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("stop")
             .and(warp::post())
@@ -58,7 +58,7 @@ mod filters {
             .and_then(handlers::stop_agent)
     }
     pub fn start_agent(
-        agent: AgentHandle,
+        agent: AgentController,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("start")
             .and(warp::post())
@@ -66,7 +66,7 @@ mod filters {
             .and_then(handlers::start_agent)
     }
     pub fn list_jobs(
-        agent: AgentHandle,
+        agent: AgentController,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("jobs")
             .and(warp::get())
@@ -92,28 +92,29 @@ mod model {
     }
 }
 mod handlers {
+    use log::warn;
     use werkflow_scripting::Script;
 
-    use crate::{work::Workload, AgentCommand, AgentHandle};
+    use crate::{work::Workload, AgentCommand, AgentController};
 
     use super::*;
 
-    pub async fn print_status<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
+    pub async fn print_status<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
         Ok(format!(
             "The current status is: {:?}",
-            agent.handle.read().await.status().await
+            controller.agent.read().await.status().await
         ))
     }
 
     pub async fn start_job<'a>(
-        agent_handle: AgentHandle,
+        controller: AgentController,
         script: Script,
     ) -> Result<impl warp::Reply, Infallible> {
-        let handle = agent_handle.handle.clone();
+        let handle = controller.agent.clone();
 
         let mut agent = handle.write().await;
 
-        let wl_handle = agent.run(Workload::with_script(agent_handle.clone(), script));
+        let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
         let id = wl_handle.read().await.id;
 
@@ -137,17 +138,15 @@ mod handlers {
                 handle.status = crate::work::WorkloadStatus::Complete;
             }
             drop(handle);
-        });
-
-        println!("Spawned Monitor on Join Handle");
+        });        
 
         drop(agent);
 
         Ok(format!("Started job {}", id))
     }
     
-    pub async fn list_jobs<'a>(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        let handle = agent.handle.read().await;
+    pub async fn list_jobs<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
+        let handle = controller.agent.read().await;
       
         let mut vec: Vec<model::JobResult> = Vec::new();
 
@@ -164,22 +163,26 @@ mod handlers {
         Ok(serde_json::to_string(&vec).unwrap())
     }
 
-    pub async fn stop_agent(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        let mut agent = agent.handle.write().await;
+    pub async fn stop_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
+        let mut agent = controller.agent.write().await;
 
-        agent.command(AgentCommand::Stop).await;
+        if let Err(err) = agent.command(AgentCommand::Stop).await {
+            warn!("Error thrown while trying to stop agent: {}", err);
+        };
 
         agent.work_handles.clear();
 
         Ok(format!("The agent has been stopped."))
     }
-    pub async fn start_agent(agent: AgentHandle) -> Result<impl warp::Reply, Infallible> {
-        let _ = agent
-            .handle
+    pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
+        if let Err(err) =  controller
+            .agent
             .write()
             .await
             .command(AgentCommand::Start)
-            .await;
+            .await {
+                warn!("Error thrown while trying to start agent: {}", err);
+            }
 
         Ok(format!("The agent has been started."))
     }
@@ -188,7 +191,7 @@ mod handlers {
 pub struct WebFeature {
     config: FeatureConfig,
     shutdown: Option<Sender<()>>,
-    agent: Option<AgentHandle>,
+    agent: Option<AgentController>,
 }
 
 impl WebFeature {
@@ -203,7 +206,7 @@ impl WebFeature {
 
 #[async_trait]
 impl Feature for WebFeature {
-    fn init(&mut self, agent: AgentHandle) {
+    fn init(&mut self, agent: AgentController) {
         self.agent = Some(agent.clone());
     }
 
@@ -260,6 +263,6 @@ mod test {
     #[test]
     fn web_test() {
         let _runtime = Runtime::new().unwrap();
-        let _agt = AgentHandle::new();
+        let _agt = AgentController::new();
     }
 }

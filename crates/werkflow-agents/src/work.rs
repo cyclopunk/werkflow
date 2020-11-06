@@ -15,7 +15,7 @@ use serde::{
 use std::collections::HashMap;
 use werkflow_scripting::Map;
 
-use crate::{comm::AgentEvent, AgentHandle, WorkloadData};
+use crate::{comm::AgentEvent, AgentController, WorkloadData};
 use std::{
     fmt::{self, Display},
 };
@@ -125,7 +125,7 @@ mod http {
 pub struct Workload {
     pub id: u128,
     pub script: Script,
-    agent_handle: AgentHandle,
+    agent_handle: AgentController,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,7 +154,7 @@ impl Default for WorkloadStatus {
 
 impl Into<WorkloadData> for ScriptResult {
     fn into(self) -> WorkloadData {
-        self.to::<WorkloadData>()
+        self.to::<WorkloadData>().unwrap()
     }
 }
 
@@ -304,14 +304,14 @@ impl CommandHost {
 }
 
 impl Workload {
-    pub fn new(agent_handle: AgentHandle) -> Workload {
+    pub fn new(agent_handle: AgentController) -> Workload {
         Workload {
             id: rand::thread_rng().gen(),
             script: Script::default(),
             agent_handle,
         }
     }
-    pub fn with_script(agent_handle: AgentHandle, script: Script) -> Workload {
+    pub fn with_script(agent_handle: AgentController, script: Script) -> Workload {
         Workload {
             id: rand::thread_rng().gen(),
             script,
@@ -394,7 +394,7 @@ mod test {
 
     #[tokio::test(threaded_scheduler)]
     async fn test_stuff() {
-        let agent = AgentHandle::new();
+        let agent = AgentController::new();
 
         let script = Script::new(
             r#"                

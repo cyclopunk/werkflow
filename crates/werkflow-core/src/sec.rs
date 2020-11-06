@@ -1,4 +1,4 @@
-use acme2_slim::Account;
+use acme2_slim::{cert::SignedCertificate, Account};
 use cloudflare::{endpoints::{dns::{self, DeleteDnsRecord, ListDnsRecordsParams}, zone::{ListZones, ListZonesParams}}, framework::{async_api::ApiClient, Environment, async_api::Client, HttpApiClientConfig}};
 use cloudflare::framework::auth::Credentials;
 use anyhow::{anyhow, Result};
@@ -153,52 +153,63 @@ impl DnsProvider {
 }
 
 struct CertificateProvider {
-    account: Account
+    account: Account,
+    dns_provider: Option<DnsProvider>
 }
 
-/// Certificate provider implemented with LetsEncrypt
+/// Certificate provider that uses ACME2 to create
+/// certificates with a dns challenge.
+/// TODO Add http challenge and integrate with the web feature.CertificateProvider
 
 impl CertificateProvider {
-    async fn new(provider: DnsProvider, email : &str, domain_name: &str) -> Result<CertificateProvider> {
-        use acme2_slim::Directory;
-
-        let domains = [domain_name];
-
-        let directory = Directory::lets_encrypt()
-            .map_err(|err| anyhow!("Error creating LetsEncrypt directory: {}", err))?;
-        
-        let mut account = directory.account_registration()
-                               .email(email)
-                               .register()
-                               .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
-
-        let order = account.create_order(&[domain_name])
+    async fn order_with_dns(&mut self, provider: DnsProvider,  domains: Vec<String>) -> Result<Vec<SignedCertificate>> {
+        let order = self.account.create_order(&domains)
             .map_err(|err| anyhow!("Error creating LetsEncrypt Order {}", err))?;
-
+        let mut certificates: Vec<SignedCertificate> = Vec::new();
         for challenge in order.get_dns_challenges() {
             let signature = challenge.signature()
                 .map_err(|err| anyhow!("Could not get signature. {}", err))?;
 
+            let domain_name = &challenge
+                .domain()
+                .expect("Domain name not in challenge");
+            
             provider
-                .add_or_replace(&Zone::ByName(domain_name.into()), &ZoneRecord::TXT(format!("_acme-challenge.{}", domain_name).into(), signature))
+                .add_or_replace(
+                    &Zone::ByName(domain_name.into()), 
+                    &ZoneRecord::TXT(format!("_acme-challenge.{}", domain_name).into(), signature)
+                )
                 .await?;
 
-            challenge.validate(&account)
+            challenge.validate(&self.account)
                 .map_err(|err| anyhow!("Validation failed {}", err))?;
 
-            let signer = account.certificate_signer();
+            let signer = self.account.certificate_signer();
 
             let cert = signer.sign_certificate(&order).unwrap();
 
-            cert.save_signed_certificate(format!("certs/{}.pem", domain_name))
-                .map_err(|err| anyhow!("Could not save signed certificate. {}", err))?;
-            cert.save_private_key(format!("certs/{}.key", domain_name))
-                .map_err(|err| anyhow!("Could not save private key. {}", err))?;
+            certificates.push(cert);
             
         }
 
+        Ok(certificates)
+    }
+    async fn new(email : &str) -> Result<CertificateProvider> {
+        use acme2_slim::Directory;
+
+        let directory = Directory::lets_encrypt()
+            .map_err(|err| anyhow!("Error creating LetsEncrypt directory: {}", err))?;
+        
+        let account = directory.account_registration()
+                               .email(email)
+                               .register()
+                               .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
+
+        
+
         Ok(CertificateProvider {
-            account:account
+            account:account,
+            dns_provider: None
         })
     }
 }
@@ -215,19 +226,29 @@ mod test {
         let mut config = Config::new();
         
         config
-            .merge(File::with_name("config/security.toml"))
-            .map_err(|err| anyhow!("Could not get config from file {}", err))?;  
+            .merge(File::with_name("config/security.toml"))?;  
         
         let dns = config.get_table("dns")?;
 
         if let Some(token) = dns.get("api_token"){
             let val = token.clone();
-
-            let provider = DnsProvider::new(&val.into_str()?)?;
             
-            //provider.add_or_replace(&Zone::ByName("autobuild.cloud".into()), &ZoneRecord::TXT("test".into(), "This is a test".into())).await?;
+            let mut p = CertificateProvider::new("discourse@gmail.com").await?;
 
-            let p = CertificateProvider::new(provider, "discourse@gmail.com", "autobuild.cloud").await?;
+            let domains = vec!["test2.autobuild.cloud".into()];
+
+            let certs = p.order_with_dns(
+                DnsProvider::new(&val.into_str()?)?, 
+                domains.clone()
+            )
+            .await?;
+
+            for (i, cert) in certs.iter().enumerate() {
+                cert.save_signed_certificate(format!("config/{}.cer", &domains[i]))
+                    .map_err(|err| anyhow!("Could not save certificate: {}", err))?;
+                cert.save_private_key(format!("config/{}.key", &domains[i]))
+                    .map_err(|err| anyhow!("Could not save private_key: {}", err))?;
+            }
 
             Ok(())
         } else { Err(anyhow!("Couldn't find api_key in config")) }

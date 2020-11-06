@@ -1,17 +1,21 @@
 [package]
 name = "werkflow"
 version = "0.1.0"
-authors = ["AdamS"]
+authors = ["Adam Shaw <discourse@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
 tokio = {version = "0.2.22", features = ["full"] }
+serde = "1.0.117"
+
 werkflow-scripting = {path = "crates/werkflow-scripting"}
 werkflow-agents = {path = "crates/werkflow-agents"}
+werkflow-core = {path = "crates/werkflow-core"}
+werkflow-config = {path = "crates/werkflow-config"}
 werkflow-datalayer = {path = "crates/werkflow-datalayer"}
+werkflow-container = {path = "crates/werkflow-container"}
+
 reqwest = "0.10.8"
 
 anyhow = "1.0.33"

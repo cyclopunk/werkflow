@@ -1,41 +1,64 @@
-use bollard::{image::*, container::*, Docker};
-use anyhow::{anyhow, Result}
+use std::path::Path;
+use bollard::{ClientVersion, Docker};
+use anyhow::{anyhow, Result};
 use bollard::container::{Config, CreateContainerOptions, LogsOptions, StartContainerOptions};
 use bollard::image::CreateImageOptions;
-use bollard::models::*;
-use bollard::Docker;
+
 
 use futures_util::stream::{TryStreamExt, select};
 
-async fn create_and_start_container (name: &str, image_name : &str) -> Result<()>{
+const DEFAULT_TIMEOUT : u64 = 60;
+pub const API_DEFAULT_VERSION: &ClientVersion = &ClientVersion {
+    major_version: 1,
+    minor_version: 40,
+};
 
-    #[cfg(unix)]
-    let docker = Docker::connect_with_unix_defaults().unwrap();
-    #[cfg(windows)]
-    let docker = Docker::connect_with_named_pipe_defaults().unwrap();
+pub struct ContainerService {
+    docker: Docker
+}
 
-    &docker
-    .create_image(
-        Some(CreateImageOptions {
-            from_image: image_name,
+impl ContainerService {
+    async fn connect_with_ssl(url: &str, ssl_key: &Path, ssl_cert: &Path, ssl_ca: &Path) -> ContainerService {
+        ContainerService {
+            docker: Docker::connect_with_ssl(url, ssl_key,ssl_cert, ssl_ca, DEFAULT_TIMEOUT, API_DEFAULT_VERSION).unwrap()
+        }
+    }
+    
+    async fn connect_with_http(url: &str) -> ContainerService {
+        ContainerService {
+            docker: Docker::connect_with_http(url, DEFAULT_TIMEOUT, API_DEFAULT_VERSION).unwrap()
+        }
+    }
+    async fn create_and_start_container (&self, container_name: &str, image_name : &str, env: &[&str]) -> Result<()>{
+        let config = Config {
+            image: Some(image_name),
+            env: Some(env.to_vec()),
             ..Default::default()
-        }),
-        None,
-        None,
-    )
-    .try_collect::<Vec<_>>()
-    .await?;
+        };
 
-    &docker
-        .create_container(
-            Some(CreateContainerOptions { name: name }),
-            zookeeper_config,
+        self.docker
+        .create_image(
+            Some(CreateImageOptions {
+                from_image: image_name,
+                ..Default::default()
+            }),
+            None,
+            None,
         )
+        .try_collect::<Vec<_>>()
         .await?;
 
-    &docker
-        .start_container(name, None::<StartContainerOptions<String>>)
-        .await?;
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions { name: container_name }),
+                config,
+            )
+            .await?;
 
-    Ok(())
+        self.docker
+            .start_container(container_name, None::<StartContainerOptions<String>>)
+            .await?;
+
+        Ok(())
+    }
 }
