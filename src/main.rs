@@ -1,4 +1,5 @@
-use tokio::runtime::Handle;
+use log::info;
+use tokio::{runtime::Handle, join};
 use tokio::runtime::Builder;
 use tokio::runtime::Runtime;
 use werkflow_core::HttpAction;
@@ -10,9 +11,10 @@ use serde::{Deserialize, Serialize};
 use werkflow_agents::{AgentController, threads::AsyncRunner, FeatureConfig, web::WebFeature};
 use werkflow_config::ConfigSource;
 use std::{time::Duration, net::Ipv4Addr, thread};
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct AgentConfig {
     name: String,    
+    number: u16,
     web: Option<WebConfig>
 }
 
@@ -22,7 +24,6 @@ struct WebConfig {
     port: u16
 }
 fn main() -> Result<()> {
-    pretty_env_logger::init();
     
     let runtime  = Builder::new()
         .threaded_scheduler()
@@ -41,8 +42,18 @@ fn main() -> Result<()> {
             .value_name("URL/FILENAME")
             .help("URL or Filename for the agent configuration.")
             .takes_value(true))
-            .get_matches();
+        .arg(Arg::with_name("log")
+            .short("l")
+            .long("log-level")
+            .value_name("LOGLEVEL")
+            .help("trace, debug, info, warn")
+            .takes_value(true))
+        .get_matches();
     
+            
+        std::env::set_var("RUST_LOG", matches.value_of("log").unwrap_or("info"));
+        pretty_env_logger::init();
+
         let config_name = matches.value_of("config").unwrap_or("config/werkflow.toml").clone();
 
         let config : AgentConfig = if let Ok(_) = config_name.parse::<Url>() {
@@ -51,17 +62,29 @@ fn main() -> Result<()> {
             werkflow_config::read_config(ConfigSource::File(config_name.to_string())).await.unwrap()
         };
 
-        if let Some(web_config) = config.web {
+        if let Some(web_config) = config.web {           
             
-            let mut agent = AgentController::with_runtime(&config.name, runtime);            
+            let mut channels = Vec::new();
+            for i in 0..config.number {
+                info!("Starting agent {}", i);
+                let runtime  = Builder::new()
+                    .threaded_scheduler()
+                    .enable_all()
+                    .build().unwrap();
+                channels
+                    .push(AgentController::with_runtime(&format!("{} - {}", &config.name, i), runtime)
+                    .add_feature(WebFeature::new(FeatureConfig {
+                        bind_address: web_config.bind_address.parse::<Ipv4Addr>().unwrap().octets(),
+                        bind_port: web_config.port + i,
+                        settings: Default::default(),
+                    }))
+                .start()
+                .await)
+            };
+        }
 
-            agent
-                .add_feature(WebFeature::new(FeatureConfig {
-                    bind_address: web_config.bind_address.parse::<Ipv4Addr>().unwrap().octets(),
-                    bind_port: web_config.port,
-                    settings: Default::default(),
-                }))
-                .start().await;           
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
         }
     });
 

@@ -42,7 +42,7 @@ impl<'a> Default for Agent {
         let agt = Agent {
             name: "Unnamed Agent".to_string(),
             features: Vec::default(),
-            runtime: None,
+            runtime: Runtime::new().unwrap(),
             state: AgentState::Stopped,
             work_handles: Vec::default(),
             hub: Arc::new(RwLock::new(Hub::new())),
@@ -166,7 +166,7 @@ impl AgentController {
 
             println!("Spawning on runtime");
             
-            agent.runtime.as_ref().unwrap().spawn(async move {
+            agent.runtime.spawn(async move {
                 info!("Spawning feature communication channel.");
 
                 loop {
@@ -258,7 +258,7 @@ pub struct Agent {
     features: Vec<FeatureHandle>,
     state: AgentState,
     statistics: AgentStatistics,
-    runtime: Option<Runtime>,
+    runtime: Runtime,
     hub: Arc<RwLock<Hub<AgentEvent>>>,
     work_handles: Vec<Arc<tokio::sync::RwLock<WorkloadHandle>>>,
 }
@@ -273,8 +273,12 @@ impl Agent {
     fn with_runtime(name: &str, runtime: Runtime) -> Agent {
         Agent {
             name: name.to_string(),
-            runtime: Some(runtime),
-            ..Default::default()
+            features: Vec::default(),
+            runtime: runtime,
+            state: AgentState::Stopped,
+            work_handles: Vec::default(),
+            hub: Arc::new(RwLock::new(Hub::new())),
+            statistics: AgentStatistics::default(),
         }
     }
     fn status(&self) -> AgentState {
@@ -301,7 +305,7 @@ impl Agent {
     fn run(&mut self, workload: Workload) -> Arc<tokio::sync::RwLock<WorkloadHandle>> {
         let id = workload.id;
 
-        let jh = self.runtime.as_ref().unwrap().spawn(async move {
+        let jh = self.runtime.spawn(async move {
             println!("Running workload.");
             workload.run().await
         });

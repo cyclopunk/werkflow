@@ -101,7 +101,7 @@ use log::warn;
         controller: AgentController,
     ) -> Result<impl warp::Reply, Infallible> {
         Ok(format!(
-            "The current status is: {:?}",
+            "{} The current status is: {:?}",controller.agent.read().name,
             controller.agent.read().status()
         ))
     }
@@ -115,7 +115,7 @@ use log::warn;
         
         let wl_handle = agent.run(Workload::with_script(controller.clone(), script));        
 
-        agent.runtime.as_ref().unwrap().spawn(async move {
+        agent.runtime.spawn(async move {
             
             let id = wl_handle.read().await.id;
             let mut handle = wl_handle.write().await;    
@@ -236,7 +236,7 @@ impl Feature for WebFeature {
                 );
             
                 controller.with_read(|f| {
-                    f.runtime.as_ref().unwrap().spawn(srv);
+                    f.runtime.spawn(srv);
                 }); 
                 
 
@@ -275,9 +275,9 @@ use super::*;
         .build().unwrap();
 
         let handle = &runtime.handle().clone();
-        let _agt = AgentController::new("Agent");
 
         let mut agent = AgentController::with_runtime("Test", runtime);            
+        
         handle.block_on(async move {
             agent
             .add_feature(WebFeature::new(FeatureConfig {
