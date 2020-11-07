@@ -1,10 +1,10 @@
 use anyhow::anyhow;
 use std::future::Future;
 
-pub(crate) struct AsyncRunner;
+pub struct AsyncRunner;
 
 impl AsyncRunner {
-    pub(crate) fn block_on<'a, F: Future + Send + 'static>(f: F) -> F::Output
+    pub fn block_on<'a, F: Future + Send + 'static>(f: F) -> F::Output
     where
         F::Output: Sync + Send + 'static,
     {

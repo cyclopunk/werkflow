@@ -1,10 +1,10 @@
-use async_trait::async_trait;
+use crate::AsyncRunner;
 use std::convert::Infallible;
 
 use anyhow::anyhow;
 
 use log::info;
-use tokio::sync::oneshot::{self, Sender};
+use tokio::{runtime::Handle, sync::oneshot::{self, Sender}};
 
 //use handlebars::Handlebars;
 
@@ -89,7 +89,8 @@ mod model {
     }
 }
 mod handlers {
-    use log::warn;
+    use tokio::runtime::Handle;
+use log::warn;
     use werkflow_scripting::Script;
 
     use crate::{work::Workload, AgentCommand, AgentController};
@@ -101,7 +102,7 @@ mod handlers {
     ) -> Result<impl warp::Reply, Infallible> {
         Ok(format!(
             "The current status is: {:?}",
-            controller.agent.read().await.status().await
+            controller.agent.read().status()
         ))
     }
 
@@ -109,18 +110,18 @@ mod handlers {
         controller: AgentController,
         script: Script,
     ) -> Result<impl warp::Reply, Infallible> {
-        let handle = controller.agent.clone();
 
-        let mut agent = handle.write().await;
+        let mut agent = controller.agent.write();
+        
+        let wl_handle = agent.run(Workload::with_script(controller.clone(), script));        
 
-        let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
-
-        let id = wl_handle.read().await.id;
-
-        agent.runtime.spawn(async move {
-            let mut handle = wl_handle.write().await;
-
-            if let Some(h) = handle.join_handle.take() {
+        agent.runtime.as_ref().unwrap().spawn(async move {
+            
+            let id = wl_handle.read().await.id;
+            let mut handle = wl_handle.write().await;    
+            let jh = wl_handle.write().await.join_handle.take();
+    
+            if let Some(h) = jh {
                 match h
                     .await
                     .map_err(|err| anyhow!("Could not join job thread. {}", err))
@@ -136,22 +137,20 @@ mod handlers {
 
                 handle.status = crate::work::WorkloadStatus::Complete;
             }
-            drop(handle);
         });
+        
 
-        drop(agent);
-
-        Ok(format!("Started job {}", id))
+        Ok(format!("Started job"))
     }
 
     pub async fn list_jobs<'a>(
         controller: AgentController,
     ) -> Result<impl warp::Reply, Infallible> {
-        let handle = controller.agent.read().await;
+        let work = controller.agent.read().work_handles.clone();
 
         let mut vec: Vec<model::JobResult> = Vec::new();
 
-        for jh in &handle.work_handles {
+        for jh in work {
             let wh = jh.read().await;
 
             vec.push(model::JobResult {
@@ -165,26 +164,19 @@ mod handlers {
     }
 
     pub async fn stop_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-        let mut agent = controller.agent.write().await;
+        let mut agent = controller.agent.write();
 
-        if let Err(err) = agent.command(AgentCommand::Stop).await {
-            warn!("Error thrown while trying to stop agent: {}", err);
-        };
+        let _ = agent.command(AgentCommand::Stop).unwrap();
 
         agent.work_handles.clear();
 
         Ok(format!("The agent has been stopped."))
     }
     pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-        if let Err(err) = controller
+        let _ = controller
             .agent
             .write()
-            .await
-            .command(AgentCommand::Start)
-            .await
-        {
-            warn!("Error thrown while trying to start agent: {}", err);
-        }
+            .command(AgentCommand::Start).unwrap();
 
         Ok(format!("The agent has been started."))
     }
@@ -206,40 +198,49 @@ impl WebFeature {
     }
 }
 
-#[async_trait]
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentController) {
-        self.agent = Some(agent.clone());
+        self.agent = Some(agent.clone());                 
+        
     }
 
     fn name(&self) -> String {
+        
         return format!("Web Feature (running on port {})", self.config.bind_port).to_string();
     }
 
-    async fn on_event(&mut self, event: AgentEvent) {
+    fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
-                let agent = self.agent.clone().unwrap();
-
-                let api = agent_status(agent.clone())
-                    .or(filters::stop_agent(agent.clone()))
-                    .or(filters::start_agent(agent.clone()))
-                    .or(filters::start_job(agent.clone()))
-                    .or(filters::list_jobs(agent.clone()));
-
-                let server = warp::serve(api);
+                info!("Starting the web service");
+                let controller = self.agent.clone().unwrap();                     
+                let config = self.config.clone();
                 let (tx, rx) = oneshot::channel();
-
+                
                 self.shutdown = Some(tx);
+                let api = agent_status(controller.clone())
+                    .or(filters::stop_agent(controller.clone()))
+                    .or(filters::start_agent(controller.clone()))
+                    .or(filters::start_job(controller.clone()))
+                    .or(filters::list_jobs(controller.clone()));
+
+                let server = warp::serve(warp::get().map(|| {Ok("Test")}));
+
+                info!("Spawning a webserver on {:?} {:?}", config.bind_address, config.bind_port);
 
                 let (_, srv) = server.bind_with_graceful_shutdown(
-                    (self.config.bind_address, self.config.bind_port),
-                    async move {
+                    (config.bind_address, config.bind_port),
+                    async {
                         rx.await.ok();
-                    },
+                   }
                 );
+            
+                controller.agent.read().runtime.as_ref().unwrap().spawn(async {
+                    info!("Spawning");
+                });
+                
 
-                agent.spawn(srv).await;
+                info!("Webservice spawned into another thread.");
             }
             AgentEvent::Stopped => {
                 if let Some(signal) = self.shutdown.take() {
@@ -259,12 +260,30 @@ impl Feature for WebFeature {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use tokio::runtime::Builder;
+use super::*;
     use crate::Runtime;
 
     #[test]
     fn web_test() {
-        let _runtime = Runtime::new().unwrap();
-        let _agt = AgentController::new();
+        let runtime  = Builder::new()
+        .threaded_scheduler()
+        .enable_all()
+        .build().unwrap();
+
+        let handle = &runtime.handle().clone();
+        let _agt = AgentController::new("Agent");
+
+        let mut agent = AgentController::with_runtime("Test", runtime);            
+        handle.block_on(async move {
+            agent
+            .add_feature(WebFeature::new(FeatureConfig {
+                bind_address: [127,0,0,1],
+                bind_port: 3030,
+                settings: Default::default(),
+            }))
+            .start().await
+            .recv().unwrap();   
+        })   
     }
 }

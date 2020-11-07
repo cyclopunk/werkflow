@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 
 use anyhow::{anyhow, Result};
 use serde::Serialize;
-use tokio::sync::RwLock;
+use tokio::{runtime::Handle, sync::RwLock};
 
 pub enum Message<T>
 where
@@ -205,7 +205,7 @@ where
             }
         });
 
-        tokio::spawn(async move {
+        Handle::current().spawn(async move {
             t_rx.recv().unwrap();
             drop(jh);
         });

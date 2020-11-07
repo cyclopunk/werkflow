@@ -297,13 +297,13 @@ impl CommandHost {
                 Ok(_) => Ok(to_dynamic("").unwrap()),
                 Err(err) => Err(Box::new(EvalAltResult::ErrorRuntime(
                     format!("Error adding record {}", err).into(),
-                    Position::none(),
+                    werkflow_scripting::Position::new(0,0),
                 ))),
             }
         } else {
             Err(Box::new(EvalAltResult::ErrorRuntime(
                 format!("Could not find dns configuration").into(),
-                Position::none(),
+                werkflow_scripting::Position::new(0,0),
             )))
         }
     }
@@ -329,8 +329,7 @@ impl Workload {
         let mut script_host = ScriptHost::new();
 
         self.agent_handle
-            .send(AgentEvent::WorkStarted(self.clone()))
-            .await?;
+            .send(AgentEvent::WorkStarted(self.clone()));
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
 
