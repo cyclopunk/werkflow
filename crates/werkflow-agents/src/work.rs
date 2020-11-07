@@ -328,8 +328,9 @@ impl Workload {
     pub async fn run(&self) -> Result<String> {
         let mut script_host = ScriptHost::new();
 
-        self.agent_handle
-            .send(AgentEvent::WorkStarted(self.clone()));
+        let _ = self.agent_handle
+            .send(AgentEvent::WorkStarted(self.clone()))
+            .unwrap();
         // Would like to refactor this so types can be infered from use, maybe a proc macro
         // to create all of the funcs
 

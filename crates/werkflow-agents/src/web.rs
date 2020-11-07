@@ -250,10 +250,12 @@ impl Feature for WebFeature {
                         .map_err(|_err| anyhow!("Error sending signal to web service"));
                 }
             }
-            AgentEvent::PayloadReceived(_) => {}
-            AgentEvent::WorkStarted(_) => {}
-            AgentEvent::WorkErrored(_) => {}
-            AgentEvent::WorkComplete(_) => {}
+            AgentEvent::PayloadReceived(_payload) => {}
+            AgentEvent::WorkStarted(_workload) => {}
+            AgentEvent::WorkErrored(_err) => {}
+            AgentEvent::WorkComplete(_result) => {
+
+            }
         }
     }
 }

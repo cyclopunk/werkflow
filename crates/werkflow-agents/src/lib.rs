@@ -9,7 +9,7 @@ use config::Config;
 use core::future::Future;
 use crossbeam_channel::{Receiver, Sender};
 use log::{debug, info};
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 use std::{collections::HashMap, fmt::Debug};
 use threads::AsyncRunner;
 use tokio::{runtime::Handle};
@@ -46,7 +46,7 @@ impl<'a> Default for Agent {
             state: AgentState::Stopped,
             work_handles: Vec::default(),
             hub: Arc::new(RwLock::new(Hub::new())),
-            statistics: AgentStatistics::default(),
+            statistics: Arc::new(RwLock::new(AgentStatistics::default())),
         };
 
         agt
@@ -109,6 +109,18 @@ impl AgentController {
         let _ = async_std::task::block_on(tokio::task::spawn_blocking(move || {
             let agent = handle.read();
             closure(&agent);
+            drop(agent);
+        }));
+    }
+    pub fn with_write<F>(&self, closure: F)
+    where
+        F: FnOnce(&mut RwLockWriteGuard<Agent>) + Sync + Send + 'static,
+    {
+        let handle = self.agent.clone();
+
+        let _ = async_std::task::block_on(tokio::task::spawn_blocking(move || {
+            let mut agent = handle.write();
+            closure(&mut agent);
             drop(agent);
         }));
     }
@@ -248,8 +260,9 @@ impl FeatureHandle {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AgentStatistics {
     jobs_ran: u32,
+    successful_jobs: u32,
     failed_jobs: u32,
-    total_runtime: u64,
+    total_runtime: u128,
 }
 
 
@@ -257,7 +270,7 @@ pub struct Agent {
     name: String,
     features: Vec<FeatureHandle>,
     state: AgentState,
-    statistics: AgentStatistics,
+    statistics: Arc<RwLock<AgentStatistics>>,
     runtime: Runtime,
     hub: Arc<RwLock<Hub<AgentEvent>>>,
     work_handles: Vec<Arc<tokio::sync::RwLock<WorkloadHandle>>>,
@@ -278,14 +291,14 @@ impl Agent {
             state: AgentState::Stopped,
             work_handles: Vec::default(),
             hub: Arc::new(RwLock::new(Hub::new())),
-            statistics: AgentStatistics::default(),
+            statistics: Arc::new(RwLock::new(AgentStatistics::default())),
         }
     }
     fn status(&self) -> AgentState {
         self.state
     }
 
-    fn command(&mut self, cmd: AgentCommand) -> Result<()> {
+    pub fn command(&mut self, cmd: AgentCommand) -> Result<()> {
         let channel = self.hub.write().get_or_create(AGENT_CHANNEL);
         match cmd {
             AgentCommand::Start => {
@@ -302,12 +315,39 @@ impl Agent {
         Ok(())
     }
 
-    fn run(&mut self, workload: Workload) -> Arc<tokio::sync::RwLock<WorkloadHandle>> {
+    /// Run a workload in the agent
+    /// This will capture the statistics of the workload run and store it in
+    /// the agent.
+    pub fn run(&mut self, workload: Workload) -> Arc<tokio::sync::RwLock<WorkloadHandle>> {
         let id = workload.id;
 
+        self.statistics.write().jobs_ran += 1;
+
+        let stats = self.statistics.clone();
+
+        
         let jh = self.runtime.spawn(async move {
-            println!("Running workload.");
-            workload.run().await
+            info!("Running workload {}.", id);
+
+            let start = Instant::now();
+
+            let result = workload.run().await;
+
+            let duration = start.elapsed();
+
+            stats.write().total_runtime += duration.as_millis();
+
+            match result {
+                Ok(wl) => {
+                    stats.write().successful_jobs +=1; 
+
+                    Ok(wl)
+                }
+                Err(_) => {
+                    stats.write().failed_jobs += 1;
+                    Err(anyhow!("Workload run failed."))
+                }
+            }
         });
 
         let work_handle = Arc::new(tokio::sync::RwLock::new(WorkloadHandle {
@@ -331,11 +371,7 @@ pub enum AgentMessage {
     Start,
     Do(&'static str),
 }
-
-/// An agent feature. Features must be sync / send and handle events sent by the agent.
-
 pub trait Feature: Send + Sync {
-    //type Feature;
     fn init(&mut self, agent: AgentController);
     fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;

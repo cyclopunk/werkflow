@@ -1,3 +1,5 @@
+use werkflow_scripting::Script;
+use werkflow_agents::work::Workload;
 use log::info;
 use tokio::{runtime::Handle, join};
 use tokio::runtime::Builder;
@@ -8,7 +10,7 @@ use clap::Arg;
 use clap::App;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use werkflow_agents::{AgentController, threads::AsyncRunner, FeatureConfig, web::WebFeature};
+use werkflow_agents::{AgentController, comm::AgentEvent, FeatureConfig, threads::AsyncRunner, web::WebFeature};
 use werkflow_config::ConfigSource;
 use std::{time::Duration, net::Ipv4Addr, thread};
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -71,15 +73,17 @@ fn main() -> Result<()> {
                     .threaded_scheduler()
                     .enable_all()
                     .build().unwrap();
+                
+                let mut agent_c = AgentController::with_runtime(&format!("{} - {}", &config.name, i), runtime);
+
+                agent_c.add_feature(WebFeature::new(FeatureConfig {
+                    bind_address: web_config.bind_address.parse::<Ipv4Addr>().unwrap().octets(),
+                    bind_port: web_config.port + i,
+                    settings: Default::default(),
+                }));
+
                 channels
-                    .push(AgentController::with_runtime(&format!("{} - {}", &config.name, i), runtime)
-                    .add_feature(WebFeature::new(FeatureConfig {
-                        bind_address: web_config.bind_address.parse::<Ipv4Addr>().unwrap().octets(),
-                        bind_port: web_config.port + i,
-                        settings: Default::default(),
-                    }))
-                .start()
-                .await)
+                    .push(agent_c.start().await)
             };
         }
 

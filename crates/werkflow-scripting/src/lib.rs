@@ -1,4 +1,4 @@
-use log::debug;
+use log::{debug, info};
 use rand::prelude::*;
 use rhai::Scope;
 use std::fmt;
@@ -132,14 +132,22 @@ impl<'a> ScriptHost<'a> {
                 file: script.identifier.name.clone(),
             });
 
-        debug!(
+        info!(
             "Done running script {} in Script Host",
             script.identifier.name
         );
 
-        Ok(ScriptResult {
-            underlying: d.unwrap(),
-        })
+        match d {
+            Ok(r) => {
+                Ok(ScriptResult {
+                    underlying: r,
+                })
+            }
+            Err(err) => {
+                info!("Error running script {:?}", err);
+                Err(err)
+            }
+        }
     }
 }
 
