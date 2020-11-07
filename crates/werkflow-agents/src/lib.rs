@@ -100,7 +100,18 @@ impl AgentController {
             signal: None
         }
     }
+    pub fn with_read<F>(&self, closure: F)
+    where
+        F: FnOnce(&RwLockReadGuard<Agent>) + Sync + Send + 'static,
+    {
+        let handle = self.agent.clone();
 
+        let _ = async_std::task::block_on(tokio::task::spawn_blocking(move || {
+            let agent = handle.read();
+            closure(&agent);
+            drop(agent);
+        }));
+    }
     pub fn send(&self, event: AgentEvent) -> Result<()> {
         let agent = self.agent.read();
         let mut hub = agent.hub.write();
@@ -242,7 +253,7 @@ pub struct AgentStatistics {
 }
 
 
-struct Agent {
+pub struct Agent {
     name: String,
     features: Vec<FeatureHandle>,
     state: AgentState,

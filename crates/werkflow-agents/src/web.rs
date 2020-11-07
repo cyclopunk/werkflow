@@ -200,8 +200,7 @@ impl WebFeature {
 
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentController) {
-        self.agent = Some(agent.clone());                 
-        
+        self.agent = Some(agent);                 
     }
 
     fn name(&self) -> String {
@@ -218,13 +217,14 @@ impl Feature for WebFeature {
                 let (tx, rx) = oneshot::channel();
                 
                 self.shutdown = Some(tx);
+
                 let api = agent_status(controller.clone())
                     .or(filters::stop_agent(controller.clone()))
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
                     .or(filters::list_jobs(controller.clone()));
 
-                let server = warp::serve(warp::get().map(|| {Ok("Test")}));
+                let server = warp::serve(api);
 
                 info!("Spawning a webserver on {:?} {:?}", config.bind_address, config.bind_port);
 
@@ -235,9 +235,9 @@ impl Feature for WebFeature {
                    }
                 );
             
-                controller.agent.read().runtime.as_ref().unwrap().spawn(async {
-                    info!("Spawning");
-                });
+                controller.with_read(|f| {
+                    f.runtime.as_ref().unwrap().spawn(srv);
+                }); 
                 
 
                 info!("Webservice spawned into another thread.");
@@ -266,6 +266,9 @@ use super::*;
 
     #[test]
     fn web_test() {
+        std::env::set_var("RUST_LOG", "trace");
+        
+        pretty_env_logger::init();
         let runtime  = Builder::new()
         .threaded_scheduler()
         .enable_all()
