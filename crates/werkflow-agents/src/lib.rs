@@ -21,6 +21,7 @@ use tokio::{runtime::Runtime};
 use serde::{Deserialize, Serialize};
 use work::{Workload, WorkloadHandle};
 
+pub(crate) mod prom;
 pub mod cfg;
 pub mod comm;
 pub mod threads;

@@ -1,3 +1,4 @@
+use crate::prom::register_custom_metrics;
 use crate::AsyncRunner;
 use std::convert::Infallible;
 
@@ -22,13 +23,17 @@ mod filters {
     use crate::AgentController;
 
     use super::*;
-
     fn with_agent(
         agent: AgentController,
     ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
         warp::any().map(move || agent.clone())
     }
-
+    pub fn metrics(
+    ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+        warp::path!("metrics")
+            .and(warp::get())
+            .and_then(handlers::metrics_handler)
+    }
     pub fn agent_status(
         agent: AgentController,
     ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -89,14 +94,48 @@ mod model {
     }
 }
 mod handlers {
-    use tokio::runtime::Handle;
-use log::warn;
+    use warp::Rejection;
+    use warp::Reply;
     use werkflow_scripting::Script;
 
     use crate::{work::Workload, AgentCommand, AgentController};
 
     use super::*;
 
+    pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
+        use prometheus::Encoder;
+        let encoder = prometheus::TextEncoder::new();
+    
+        let mut buffer = Vec::new();
+        if let Err(e) = encoder.encode(&crate::prom::REGISTRY.gather(), &mut buffer) {
+            eprintln!("could not encode custom metrics: {}", e);
+        };
+        let mut res = match String::from_utf8(buffer.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("custom metrics could not be from_utf8'd: {}", e);
+                String::default()
+            }
+        };
+        buffer.clear();
+    
+        let mut buffer = Vec::new();
+        if let Err(e) = encoder.encode(&prometheus::gather(), &mut buffer) {
+            eprintln!("could not encode prometheus metrics: {}", e);
+        };
+        let res_custom = match String::from_utf8(buffer.clone()) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("prometheus metrics could not be from_utf8'd: {}", e);
+                String::default()
+            }
+        };
+        buffer.clear();
+    
+        res.push_str(&res_custom);
+        Ok(res)
+    }
+    
     pub async fn print_status<'a>(
         controller: AgentController,
     ) -> Result<impl warp::Reply, Infallible> {
@@ -148,7 +187,7 @@ use log::warn;
     ) -> Result<impl warp::Reply, Infallible> {
         let work = controller.agent.read().work_handles.clone();
 
-        let mut vec: Vec<model::JobResult> = Vec::new();
+        let mut vec: Vec<model::JobResult> = Vec::new();        
 
         for jh in work {
             let wh = jh.read().await;
@@ -218,11 +257,20 @@ impl Feature for WebFeature {
                 
                 self.shutdown = Some(tx);
 
+                let log =  warp::log::custom(|info| {
+                    // Use a log macro, or slog, or println, or whatever!
+                    crate::prom::INCOMING_REQUESTS.inc();
+                    crate::prom::RESPONSE_CODE_COLLECTOR.with_label_values(&["production", &info.status().as_str(), &info.method().to_string()])
+                    .inc();
+                });
+
                 let api = agent_status(controller.clone())
                     .or(filters::stop_agent(controller.clone()))
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
-                    .or(filters::list_jobs(controller.clone()));
+                    .or(filters::list_jobs(controller.clone()))
+                    .or(filters::metrics())
+                    .with(log);
 
                 let server = warp::serve(api);
 
@@ -239,6 +287,7 @@ impl Feature for WebFeature {
                     f.runtime.spawn(srv);
                 }); 
                 
+                register_custom_metrics();
 
                 info!("Webservice spawned into another thread.");
             }
