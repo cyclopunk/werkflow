@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
 use config::Config;
-use core::future::Future;
+
 use crossbeam_channel::{Receiver, Sender};
 use log::{debug, info};
 use parking_lot::RwLock;
@@ -12,7 +12,7 @@ use std::{collections::HashMap, fmt::Debug};
 use std::{sync::Arc, time::Instant};
 use threads::AsyncRunner;
 use tokio::runtime::Builder;
-use tokio::runtime::Handle;
+
 
 use lazy_static::*;
 

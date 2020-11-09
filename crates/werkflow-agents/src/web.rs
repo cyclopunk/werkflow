@@ -1,12 +1,11 @@
 use crate::prom::register_custom_metrics;
-use crate::AsyncRunner;
+
 use std::convert::Infallible;
 
 use anyhow::anyhow;
 
 use log::info;
 use tokio::{
-    runtime::Handle,
     sync::oneshot::{self, Sender},
 };
 
@@ -157,7 +156,7 @@ mod handlers {
         let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
         agent.runtime.spawn(async move {
-            let id = wl_handle.read().await.id;
+            let _id = wl_handle.read().await.id;
             let mut handle = wl_handle.write().await;
             let jh = wl_handle.write().await.join_handle.take();
 
@@ -318,7 +317,7 @@ impl Feature for WebFeature {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Runtime;
+    
     use tokio::runtime::Builder;
 
     #[test]
