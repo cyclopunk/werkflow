@@ -1,17 +1,19 @@
+use werkflow_core::sec::ZoneRecord;
+use werkflow_core::sec::{CertificateProvider, Zone};
+use werkflow_core::sec::DnsProvider;
 use anyhow::Result;
 use clap::App;
 use clap::Arg;
 use log::info;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use std::{net::Ipv4Addr, time::Duration};
+use std::{net::Ipv4Addr, time::Duration, path::Path};
 use tokio::runtime::Builder;
+use anyhow::anyhow;
 
 
 
-use werkflow_agents::{
-    web::WebFeature, AgentController, FeatureConfig,
-};
+use werkflow_agents::{AgentController, FeatureConfig, web::{WebConfiguration, WebFeature}};
 use werkflow_config::ConfigSource;
 use werkflow_core::HttpAction;
 
@@ -19,14 +21,16 @@ use werkflow_core::HttpAction;
 struct AgentConfig {
     name: String,
     number: u16,
-    web: Option<WebConfig>,
+    web: Option<WebConfiguration>,
+    dns: Option<DnsConfiguration>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct WebConfig {
-    bind_address: String,
-    port: u16,
+#[derive(Debug, Serialize, Deserialize, Default)]
+struct DnsConfiguration {
+    api_key : String,
+    domain : String
 }
+
 fn main() -> Result<()> {
     let runtime = Builder::new()
         .threaded_scheduler()
@@ -76,6 +80,41 @@ fn main() -> Result<()> {
                 .await
                 .unwrap()
         };
+        let bind_address= config.web.as_ref().unwrap().bind_address.to_string();
+        let configure_tls = config.web.as_ref().map(|o| match o.tls.as_ref() {
+            Some(conf) => conf,
+            None => panic!("Missing TLS configuration. Werkflow agents require this configuration.")
+        } ).unwrap();
+
+
+        if !Path::new(&configure_tls.certificate_path).exists() {
+            if let Some(dns_config) = config.dns {
+
+                let fqdn = format!("{}.{}", config.name, dns_config.domain);
+                
+                let zone =  Zone::ByName(dns_config.domain.into());
+    
+                let provider = DnsProvider::new(&dns_config.api_key).expect("create dns provider");
+                
+                provider.add_or_replace(
+                        &zone,
+                        &ZoneRecord::A(fqdn.clone(), bind_address)
+                    ).await.expect("to add a local address");
+    
+                let mut p = CertificateProvider::new("discourse@gmail.com").await.expect("Could not create certificate provider.");
+    
+                let domains = vec![fqdn.into()];
+    
+                let certs = p
+                    .order_with_dns(provider, &zone, domains.clone())
+                    .await.expect("Could order with DNS.");
+    
+                for (_i, cert) in certs.iter().enumerate() {
+                    cert.save_signed_certificate("config/agent.crt").expect("could not save signed certificate");
+                    cert.save_private_key("config/agent.key").expect("Could not save private key");
+                }
+            }
+        }
 
         if let Some(web_config) = config.web {
             let mut channels = Vec::new();
@@ -90,15 +129,7 @@ fn main() -> Result<()> {
                 let mut agent_c =
                     AgentController::with_runtime(&format!("{} - {}", &config.name, i), runtime);
 
-                agent_c.add_feature(WebFeature::new(FeatureConfig {
-                    bind_address: web_config
-                        .bind_address
-                        .parse::<Ipv4Addr>()
-                        .unwrap()
-                        .octets(),
-                    bind_port: web_config.port + i,
-                    settings: Default::default(),
-                }));
+                agent_c.add_feature(WebFeature::new(web_config.clone()));
 
                 channels.push(agent_c.start().await)
             }

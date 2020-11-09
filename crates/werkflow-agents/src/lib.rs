@@ -1,3 +1,4 @@
+use crate::cfg::ConfigDefinition;
 use anyhow::{anyhow, Result};
 use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
@@ -227,13 +228,11 @@ impl AgentController {
 }
 #[derive(Clone)]
 pub struct FeatureHandle {
-    handle: Arc<RwLock<dyn Feature>>,
+    handle: Arc<RwLock<dyn Feature>>
 }
 
 impl FeatureHandle {
-    pub fn new<T>(feature: T) -> FeatureHandle
-    where
-        T: Feature + 'static,
+    pub fn new<T>(feature: T) -> FeatureHandle where T: Feature + 'static 
     {
         FeatureHandle {
             handle: Arc::new(RwLock::new(feature)),
@@ -241,7 +240,7 @@ impl FeatureHandle {
     }
 }
 
-impl FeatureHandle {
+impl <'a> FeatureHandle {
     pub async fn with_write<F>(&self, callback: F)
     where
         F: FnOnce(&mut RwLockWriteGuard<dyn Feature>) + Sync + Send + 'static,
@@ -368,7 +367,7 @@ pub enum AgentMessage {
     Start,
     Do(&'static str),
 }
-pub trait Feature: Send + Sync {
+pub trait Feature : Send + Sync {
     fn init(&mut self, agent: AgentController);
     fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;

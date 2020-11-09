@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+use crate::cfg::ConfigDefinition;
 use crate::prom::register_custom_metrics;
 
 use std::convert::Infallible;
@@ -220,17 +222,49 @@ mod handlers {
         Ok(format!("The agent has been started."))
     }
 }
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct WebConfiguration {
+    pub bind_address: Ipv4Addr,
+    pub port: u16,
+    pub tls: Option<TlsConfiguration>
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TlsConfiguration {
+    pub private_key_path : String,
+    pub certificate_path : String
+}
+
+impl Default for WebConfiguration {
+    fn default() -> Self {
+        WebConfiguration {
+            bind_address: "127.0.0.1".parse().unwrap(),
+            port: 3030,
+            tls: Some(TlsConfiguration {
+                private_key_path: "config/agent.key".into(),
+                certificate_path: "config/agent.crt".into()
+            })
+        }
+    }
+}
+
+impl ConfigDefinition for WebConfiguration {
+
+}
+impl ConfigDefinition for TlsConfiguration {
+
+}
 
 pub struct WebFeature {
-    config: FeatureConfig,
+    config: WebConfiguration,
     shutdown: Option<Sender<()>>,
     agent: Option<AgentController>,
 }
 
-impl WebFeature {
-    pub fn new(config: FeatureConfig) -> FeatureHandle {
+impl <'a> WebFeature {
+    pub fn new(config: impl ConfigDefinition + Serialize) -> FeatureHandle {
         FeatureHandle::new(WebFeature {
-            config: config.clone(),
+            config: WebConfiguration::merge(config).expect("To merge configs"),
             shutdown: None,
             agent: None,
         })
@@ -243,7 +277,7 @@ impl Feature for WebFeature {
     }
 
     fn name(&self) -> String {
-        return format!("Web Feature (running on port {})", self.config.bind_port).to_string();
+        return format!("Web Feature (running on port {})", self.config.port).to_string();
     }
 
     fn on_event(&mut self, event: AgentEvent) {
@@ -256,6 +290,8 @@ impl Feature for WebFeature {
 
                 self.shutdown = Some(tx);
 
+                // Add custom metrics 
+                
                 let log = warp::log::custom(|info| {
                     // Use a log macro, or slog, or println, or whatever!
                     crate::prom::INCOMING_REQUESTS.inc();
@@ -276,15 +312,24 @@ impl Feature for WebFeature {
                     .or(filters::metrics())
                     .with(log);
 
-                let server = warp::serve(api);
+                let mut server;
+
+                if let Some(tls) = config.tls {
+                    server = warp::serve(api)
+                        .tls()
+                        .key_path(tls.private_key_path)
+                        .cert_path(tls.certificate_path);
+                } else  {
+                    panic!("Web feature is not supported without TLS.")
+                }
 
                 info!(
                     "Spawning a webserver on {:?} {:?}",
-                    config.bind_address, config.bind_port
+                    config.bind_address, config.port
                 );
 
                 let (_, srv) = server.bind_with_graceful_shutdown(
-                    (config.bind_address, config.bind_port),
+                    (config.bind_address, config.port),
                     async {
                         rx.await.ok();
                     },
@@ -337,10 +382,9 @@ mod test {
 
         handle.block_on(async move {
             agent
-                .add_feature(WebFeature::new(FeatureConfig {
-                    bind_address: [127, 0, 0, 1],
-                    bind_port: 3030,
-                    settings: Default::default(),
+                .add_feature(WebFeature::new(WebConfiguration {
+                    bind_address: "127.0.0.1".parse().unwrap(),
+                    port: 3030                    
                 }))
                 .start()
                 .await

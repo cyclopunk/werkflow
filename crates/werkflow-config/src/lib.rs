@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use config::*;
+use config::{Config, File, FileFormat};
 use serde::Deserialize;
 
 use werkflow_core::HttpAction;
@@ -11,6 +11,27 @@ pub enum ConfigSource {
     File(String),
 }
 
+pub mod blocking {
+    use std::path::Path;
+
+    use super::*;
+
+    pub fn from_file<T>(source: &Path) -> Result<T, anyhow::Error>  where
+        for<'de> T: Deserialize<'de> {
+        let mut config = Config::new();
+
+        config
+            .merge(File::from(source))
+            .map_err(|err| anyhow!("Could get config from path ({:?}) provided. {}", source, err))?;
+
+        config.try_into::<T>().map_err(|err| {
+            anyhow!(
+                "Could not coerce configuration into DataSourceConfig: {}",
+                err
+            )
+        })
+    }
+}
 pub async fn read_config<T>(source: ConfigSource) -> Result<T, anyhow::Error>
 where
     for<'de> T: Deserialize<'de>,

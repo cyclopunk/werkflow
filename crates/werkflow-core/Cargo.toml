@@ -26,4 +26,4 @@ crossbeam-channel = "0.5.0"
 
 cloudflare-rs = "0.6.6"
 
-acme2-slim = {git = "https://github.com/cyclopunk/acme2-slim", branch="main"}
+acme2-slim = {path = "../../../acme2-slim"}

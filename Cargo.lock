@@ -3,7 +3,6 @@
 [[package]]
 name = "acme2-slim"
 version = "0.1.2"
-source = "git+https://github.com/cyclopunk/acme2-slim?branch=main#bca620d76d51ca1f65f085e250061b4c484caed5"
 dependencies = [
  "base64 0.13.0",
  "env_logger 0.8.1",
@@ -1799,6 +1798,12 @@ checksum = "96a24caafc4b3ceb7ff9228e9c442fdc59d5ebafccd1e5146c41c45d2467dec9"
 dependencies = [
  "byteorder 0.5.3",
 ]
+
+[[package]]
+name = "machine-ip"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8197ad28c61566fb74b2167563865906215fbc32c61fd866bd54e7c195eb84ed"
 
 [[package]]
 name = "maplit"
@@ -3907,6 +3912,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded 0.6.1",
  "tokio 0.2.22",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tower-service",
  "tracing",
@@ -4064,6 +4070,7 @@ dependencies = [
  "handlebars 3.5.1",
  "lazy_static 1.4.0",
  "log 0.4.11",
+ "machine-ip",
  "parking_lot",
  "pretty_env_logger",
  "prometheus",

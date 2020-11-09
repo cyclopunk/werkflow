@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use acme2_slim::{cert::SignedCertificate, Account};
 use anyhow::{anyhow, Result};
 use cloudflare::framework::auth::Credentials;
@@ -160,7 +162,7 @@ impl DnsProvider {
     }
 }
 
-struct CertificateProvider {
+pub struct CertificateProvider {
     account: Account,
     dns_provider: Option<DnsProvider>,
 }
@@ -170,9 +172,10 @@ struct CertificateProvider {
 /// TODO Add http challenge and integrate with the web feature.CertificateProvider
 
 impl CertificateProvider {
-    async fn order_with_dns(
+    pub async fn order_with_dns(
         &mut self,
         provider: DnsProvider,
+        zone: &Zone,
         domains: Vec<String>,
     ) -> Result<Vec<SignedCertificate>> {
         let order = self
@@ -189,11 +192,13 @@ impl CertificateProvider {
 
             provider
                 .add_or_replace(
-                    &Zone::ByName(domain_name.into()),
+                    zone,
                     &ZoneRecord::TXT(format!("_acme-challenge.{}", domain_name).into(), signature),
                 )
                 .await?;
 
+            std::thread::sleep(Duration::from_secs(30));
+            
             challenge
                 .validate(&self.account)
                 .map_err(|err| anyhow!("Validation failed {}", err))?;
@@ -207,7 +212,7 @@ impl CertificateProvider {
 
         Ok(certificates)
     }
-    async fn new(email: &str) -> Result<CertificateProvider> {
+    pub async fn new(email: &str) -> Result<CertificateProvider> {
         use acme2_slim::Directory;
 
         let directory = Directory::lets_encrypt()
@@ -215,7 +220,7 @@ impl CertificateProvider {
 
         let account = directory
             .account_registration()
-            .email(email)
+            //.email(email)
             .register()
             .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
 
@@ -228,7 +233,7 @@ impl CertificateProvider {
 
 #[cfg(test)]
 mod test {
-    use super::{CertificateProvider, DnsProvider};
+    use super::{CertificateProvider, DnsProvider, Zone};
     use anyhow::{anyhow, Result};
     use config::Config;
     use config::File;
@@ -246,10 +251,10 @@ mod test {
 
             let mut p = CertificateProvider::new("discourse@gmail.com").await?;
 
-            let domains = vec!["test2.autobuild.cloud".into()];
+            let domains = vec!["test3.autobuild.cloud".into()];
 
             let certs = p
-                .order_with_dns(DnsProvider::new(&val.into_str()?)?, domains.clone())
+                .order_with_dns(DnsProvider::new(&val.into_str()?)?, &Zone::ByName("autobuild.cloud".into()), domains.clone())
                 .await?;
 
             for (i, cert) in certs.iter().enumerate() {
