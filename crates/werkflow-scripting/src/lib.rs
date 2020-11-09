@@ -138,11 +138,7 @@ impl<'a> ScriptHost<'a> {
         );
 
         match d {
-            Ok(r) => {
-                Ok(ScriptResult {
-                    underlying: r,
-                })
-            }
+            Ok(r) => Ok(ScriptResult { underlying: r }),
             Err(err) => {
                 info!("Error running script {:?}", err);
                 Err(err)

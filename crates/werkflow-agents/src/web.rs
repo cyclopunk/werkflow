@@ -5,7 +5,10 @@ use std::convert::Infallible;
 use anyhow::anyhow;
 
 use log::info;
-use tokio::{runtime::Handle, sync::oneshot::{self, Sender}};
+use tokio::{
+    runtime::Handle,
+    sync::oneshot::{self, Sender},
+};
 
 //use handlebars::Handlebars;
 
@@ -28,8 +31,7 @@ mod filters {
     ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
         warp::any().map(move || agent.clone())
     }
-    pub fn metrics(
-    ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    pub fn metrics() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         warp::path!("metrics")
             .and(warp::get())
             .and_then(handlers::metrics_handler)
@@ -105,7 +107,7 @@ mod handlers {
     pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
         use prometheus::Encoder;
         let encoder = prometheus::TextEncoder::new();
-    
+
         let mut buffer = Vec::new();
         if let Err(e) = encoder.encode(&crate::prom::REGISTRY.gather(), &mut buffer) {
             eprintln!("could not encode custom metrics: {}", e);
@@ -118,7 +120,7 @@ mod handlers {
             }
         };
         buffer.clear();
-    
+
         let mut buffer = Vec::new();
         if let Err(e) = encoder.encode(&prometheus::gather(), &mut buffer) {
             eprintln!("could not encode prometheus metrics: {}", e);
@@ -131,16 +133,17 @@ mod handlers {
             }
         };
         buffer.clear();
-    
+
         res.push_str(&res_custom);
         Ok(res)
     }
-    
+
     pub async fn print_status<'a>(
         controller: AgentController,
     ) -> Result<impl warp::Reply, Infallible> {
         Ok(format!(
-            "{} The current status is: {:?}",controller.agent.read().name,
+            "{} The current status is: {:?}",
+            controller.agent.read().name,
             controller.agent.read().status()
         ))
     }
@@ -149,17 +152,15 @@ mod handlers {
         controller: AgentController,
         script: Script,
     ) -> Result<impl warp::Reply, Infallible> {
-
         let mut agent = controller.agent.write();
-        
-        let wl_handle = agent.run(Workload::with_script(controller.clone(), script));        
+
+        let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
         agent.runtime.spawn(async move {
-            
             let id = wl_handle.read().await.id;
-            let mut handle = wl_handle.write().await;    
+            let mut handle = wl_handle.write().await;
             let jh = wl_handle.write().await.join_handle.take();
-    
+
             if let Some(h) = jh {
                 match h
                     .await
@@ -177,7 +178,6 @@ mod handlers {
                 handle.status = crate::work::WorkloadStatus::Complete;
             }
         });
-        
 
         Ok(format!("Started job"))
     }
@@ -187,7 +187,7 @@ mod handlers {
     ) -> Result<impl warp::Reply, Infallible> {
         let work = controller.agent.read().work_handles.clone();
 
-        let mut vec: Vec<model::JobResult> = Vec::new();        
+        let mut vec: Vec<model::JobResult> = Vec::new();
 
         for jh in work {
             let wh = jh.read().await;
@@ -215,7 +215,8 @@ mod handlers {
         let _ = controller
             .agent
             .write()
-            .command(AgentCommand::Start).unwrap();
+            .command(AgentCommand::Start)
+            .unwrap();
 
         Ok(format!("The agent has been started."))
     }
@@ -239,11 +240,10 @@ impl WebFeature {
 
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentController) {
-        self.agent = Some(agent);                 
+        self.agent = Some(agent);
     }
 
     fn name(&self) -> String {
-        
         return format!("Web Feature (running on port {})", self.config.bind_port).to_string();
     }
 
@@ -251,17 +251,22 @@ impl Feature for WebFeature {
         match event {
             AgentEvent::Started => {
                 info!("Starting the web service");
-                let controller = self.agent.clone().unwrap();                     
+                let controller = self.agent.clone().unwrap();
                 let config = self.config.clone();
                 let (tx, rx) = oneshot::channel();
-                
+
                 self.shutdown = Some(tx);
 
-                let log =  warp::log::custom(|info| {
+                let log = warp::log::custom(|info| {
                     // Use a log macro, or slog, or println, or whatever!
                     crate::prom::INCOMING_REQUESTS.inc();
-                    crate::prom::RESPONSE_CODE_COLLECTOR.with_label_values(&["production", &info.status().as_str(), &info.method().to_string()])
-                    .inc();
+                    crate::prom::RESPONSE_CODE_COLLECTOR
+                        .with_label_values(&[
+                            "production",
+                            &info.status().as_str(),
+                            &info.method().to_string(),
+                        ])
+                        .inc();
                 });
 
                 let api = agent_status(controller.clone())
@@ -274,19 +279,22 @@ impl Feature for WebFeature {
 
                 let server = warp::serve(api);
 
-                info!("Spawning a webserver on {:?} {:?}", config.bind_address, config.bind_port);
+                info!(
+                    "Spawning a webserver on {:?} {:?}",
+                    config.bind_address, config.bind_port
+                );
 
                 let (_, srv) = server.bind_with_graceful_shutdown(
                     (config.bind_address, config.bind_port),
                     async {
                         rx.await.ok();
-                   }
+                    },
                 );
-            
+
                 controller.with_read(|f| {
                     f.runtime.spawn(srv);
-                }); 
-                
+                });
+
                 register_custom_metrics();
 
                 info!("Webservice spawned into another thread.");
@@ -302,42 +310,43 @@ impl Feature for WebFeature {
             AgentEvent::PayloadReceived(_payload) => {}
             AgentEvent::WorkStarted(_workload) => {}
             AgentEvent::WorkErrored(_err) => {}
-            AgentEvent::WorkComplete(_result) => {
-
-            }
+            AgentEvent::WorkComplete(_result) => {}
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use tokio::runtime::Builder;
-use super::*;
+    use super::*;
     use crate::Runtime;
+    use tokio::runtime::Builder;
 
     #[test]
     fn web_test() {
         std::env::set_var("RUST_LOG", "trace");
-        
+
         pretty_env_logger::init();
-        let runtime  = Builder::new()
-        .threaded_scheduler()
-        .enable_all()
-        .build().unwrap();
+        let runtime = Builder::new()
+            .threaded_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
 
         let handle = &runtime.handle().clone();
 
-        let mut agent = AgentController::with_runtime("Test", runtime);            
-        
+        let mut agent = AgentController::with_runtime("Test", runtime);
+
         handle.block_on(async move {
             agent
-            .add_feature(WebFeature::new(FeatureConfig {
-                bind_address: [127,0,0,1],
-                bind_port: 3030,
-                settings: Default::default(),
-            }))
-            .start().await
-            .recv().unwrap();   
-        })   
+                .add_feature(WebFeature::new(FeatureConfig {
+                    bind_address: [127, 0, 0, 1],
+                    bind_port: 3030,
+                    settings: Default::default(),
+                }))
+                .start()
+                .await
+                .recv()
+                .unwrap();
+        })
     }
 }

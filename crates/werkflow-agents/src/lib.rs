@@ -1,7 +1,3 @@
-use parking_lot::RwLockReadGuard;
-use parking_lot::RwLockWriteGuard;
-use parking_lot::RwLock;
-use tokio::runtime::Builder;
 use anyhow::{anyhow, Result};
 use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
@@ -9,21 +5,25 @@ use config::Config;
 use core::future::Future;
 use crossbeam_channel::{Receiver, Sender};
 use log::{debug, info};
-use std::{sync::Arc, time::Instant};
+use parking_lot::RwLock;
+use parking_lot::RwLockReadGuard;
+use parking_lot::RwLockWriteGuard;
 use std::{collections::HashMap, fmt::Debug};
+use std::{sync::Arc, time::Instant};
 use threads::AsyncRunner;
-use tokio::{runtime::Handle};
+use tokio::runtime::Builder;
+use tokio::runtime::Handle;
 
 use lazy_static::*;
 
-use tokio::{runtime::Runtime};
+use tokio::runtime::Runtime;
 
 use serde::{Deserialize, Serialize};
 use work::{Workload, WorkloadHandle};
 
-pub(crate) mod prom;
 pub mod cfg;
 pub mod comm;
+pub(crate) mod prom;
 pub mod threads;
 pub mod web;
 pub mod work;
@@ -80,7 +80,7 @@ pub struct FeatureConfig {
 #[derive(Clone)]
 pub struct AgentController {
     agent: Arc<RwLock<Agent>>,
-    signal: Option<Sender<()>>
+    signal: Option<Sender<()>>,
 }
 
 impl Debug for AgentController {
@@ -94,11 +94,12 @@ impl AgentController {
         let runtime = Builder::new()
             .threaded_scheduler()
             .enable_all()
-            .build().unwrap();
+            .build()
+            .unwrap();
         let agent = Agent::with_runtime(name, runtime);
         AgentController {
             agent: Arc::new(RwLock::new(agent)),
-            signal: None
+            signal: None,
         }
     }
     pub fn with_read<F>(&self, closure: F)
@@ -149,20 +150,20 @@ impl AgentController {
     }
 
     pub fn with_runtime(name: &str, runtime: Runtime) -> AgentController {
-        let agent =Agent::with_runtime(name, runtime);
+        let agent = Agent::with_runtime(name, runtime);
         AgentController {
             agent: Arc::new(RwLock::new(agent)),
-            signal: None
+            signal: None,
         }
     }
 
     pub fn add_feature(&mut self, handle: FeatureHandle) -> &mut AgentController {
-        let mut agent =self.agent.write();
+        let mut agent = self.agent.write();
 
         agent.features.push(handle);
 
         drop(agent);
-    
+
         self
     }
 
@@ -178,25 +179,22 @@ impl AgentController {
             f.handle.write().init(self.clone());
 
             println!("Spawning on runtime");
-            
+
             agent.runtime.spawn(async move {
                 info!("Spawning feature communication channel.");
 
                 loop {
-                                        
                     let message = rx
                         .recv()
                         .map_err(|err| anyhow!("Error receiving message: {}", err));
 
-
                     if let Ok(message) = message {
-                        
                         info!("Got AgentEvent {}", message);
-                        
-                        let mut feature = feature_handle.write();    
-                        
+
+                        let mut feature = feature_handle.write();
+
                         feature.on_event(message.clone());
-                        
+
                         debug!("Done writing event to feature");
 
                         drop(feature);
@@ -223,7 +221,7 @@ impl AgentController {
         let (rx, tx) = crossbeam_channel::bounded::<()>(1);
 
         self.signal = Some(rx);
-        
+
         tx
     }
 }
@@ -265,7 +263,6 @@ pub struct AgentStatistics {
     failed_jobs: u32,
     total_runtime: u128,
 }
-
 
 pub struct Agent {
     name: String,
@@ -326,7 +323,6 @@ impl Agent {
 
         let stats = self.statistics.clone();
 
-        
         let jh = self.runtime.spawn(async move {
             info!("Running workload {}.", id);
 
@@ -340,7 +336,7 @@ impl Agent {
 
             match result {
                 Ok(wl) => {
-                    stats.write().successful_jobs +=1; 
+                    stats.write().successful_jobs += 1;
 
                     Ok(wl)
                 }
