@@ -89,7 +89,12 @@ impl Feature for WebFeature {
     fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
+                if let Some(_) = self.shutdown {
+                    return
+                }
+                
                 info!("Starting the web service");
+                
                 let controller = self.agent.clone().unwrap();
                 let config = self.config.clone();
                 let (tx, rx) = oneshot::channel();
@@ -147,12 +152,13 @@ impl Feature for WebFeature {
                 info!("Webservice spawned into another thread.");
             }
             AgentEvent::Stopped => {
-                if let Some(signal) = self.shutdown.take() {
+                /*if let Some(signal) = self.shutdown.take() {
                     info!("Stopping the web service");
                     let _ = signal
                         .send(())
                         .map_err(|_err| anyhow!("Error sending signal to web service"));
-                }
+                }*/
+                info!("Got stop signal, keeping webservice running so the agent can be started again.")
             }
             AgentEvent::PayloadReceived(_payload) => {
                 // todo

@@ -27,6 +27,7 @@ pub struct WorkloadHandle {
     pub id: u128,
     pub status: WorkloadStatus,
     pub join_handle: Option<JoinHandle<Result<String>>>,
+    pub workload: Option<Workload>,
     pub result: Option<String>,
 }
 
@@ -42,6 +43,7 @@ impl Clone for WorkloadHandle {
             status: self.status.clone(),
             join_handle: None,
             result: None,
+            workload: self.workload.clone()
         };
     }
 }

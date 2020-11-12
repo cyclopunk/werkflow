@@ -1,0 +1,17 @@
+name = "test-agent-1"
+number = 1
+
+[web]
+
+bind_address = "127.0.0.1"
+port = 3030
+
+[web.tls]
+
+private_key_path = "config/agent.key"
+certificate_path = "config/agent.crt"
+
+[dns]
+
+api_key="<ClOUDFLAREAPIKEY>"
+domain="yourdomain.com"

@@ -1,5 +1,5 @@
-use log::info;
-use werkflow_agents::{AgentController, work::Workload, AgentCommand};
+use log::{debug, info};
+use werkflow_agents::{AgentCommand, AgentController, work::{Workload, WorkloadStatus}};
 use warp::Rejection;
 use warp::Reply;
 use werkflow_scripting::Script;
@@ -45,10 +45,11 @@ pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
 pub async fn print_status<'a>(
     controller: AgentController,
 ) -> Result<impl warp::Reply, Infallible> {
+    let agent = controller.agent.read();
     Ok(format!(
         "{} The current status is: {:?}",
-        controller.agent.read().name,
-        controller.agent.read().status()
+        agent.name,
+        agent.status()
     ))
 }
 
@@ -61,9 +62,13 @@ pub async fn start_job<'a>(
     let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
     agent.runtime.spawn(async move {
-        let id = wl_handle.read().await.id;
-        info!("Starting job {}", id);
+        let id = wl_handle.read().await.id;    
         let mut handle = wl_handle.write().await;
+
+        if handle.status == WorkloadStatus::None {
+            return;
+        }
+
         let jh = handle.join_handle.take();
 
         if let Some(h) = jh {
@@ -76,12 +81,12 @@ pub async fn start_job<'a>(
                     info!("Job {} completed. Result: {}", id, result);
                     handle.result = Some(result);
                     
-                    handle.status = werkflow_agents::work::WorkloadStatus::Complete;
+                    handle.status = WorkloadStatus::Complete;
                 }
                 Err(err) => {
                     let err_string = err.to_string().clone();
                     anyhow!("Workload error thrown for job {}: {}", id, err_string);
-                    handle.status = werkflow_agents::work::WorkloadStatus::Error(err_string);
+                    handle.status = WorkloadStatus::Error(err_string);
                 }
             }
             
@@ -102,7 +107,7 @@ pub async fn list_jobs<'a>(
     let mut vec: Vec<model::JobResult> = Vec::new();
 
     for jh in work {
-        info!("Read lock on job handle");
+        debug!("Read lock on job handle");
         let wh = jh.read().await;
 
         vec.push(model::JobResult {
@@ -110,7 +115,7 @@ pub async fn list_jobs<'a>(
             status: wh.status.to_string(),
             result_string: wh.result.clone().unwrap_or_default(),
         });
-        info!("Done read lock on job handle");
+        debug!("Done read lock on job handle");
 
         drop(wh);
     }
@@ -119,20 +124,21 @@ pub async fn list_jobs<'a>(
 }
 
 pub async fn stop_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-    let mut agent = controller.agent.write();
-
-    let _ = agent.command(AgentCommand::Stop).unwrap();
+    let agent_arc = controller.agent.clone();
+    let mut agent = agent_arc.write();
 
     agent.work_handles.clear();
 
+    agent.command(AgentCommand::Stop);
+
     Ok(format!("The agent has been stopped."))
 }
+
 pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
     let _ = controller
         .agent
         .write()
-        .command(AgentCommand::Start)
-        .unwrap();
+        .command(AgentCommand::Start);
 
     Ok(format!("The agent has been started."))
 }

@@ -20,7 +20,7 @@ use lazy_static::*;
 use tokio::runtime::Runtime;
 
 use serde::{Deserialize, Serialize};
-use work::{Workload, WorkloadHandle};
+use work::{Workload, WorkloadHandle, WorkloadStatus};
 
 pub mod cfg;
 pub mod comm;
@@ -53,7 +53,7 @@ impl<'a> Default for Agent {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AgentState {
     Ok,
     Stopped,
@@ -177,10 +177,8 @@ impl AgentController {
 
             f.handle.write().init(self.clone());
 
-            println!("Spawning on runtime");
-
             agent.runtime.spawn(async move {
-                info!("Spawning feature communication channel.");
+                debug!("Spawning feature communication channel.");
 
                 loop {
                     let message = rx
@@ -253,6 +251,7 @@ impl <'a> FeatureHandle {
     }
 }
 
+
 pub struct Agent {
     pub name: String,
     pub features: Vec<FeatureHandle>,
@@ -283,27 +282,63 @@ impl Agent {
         self.state
     }
 
-    pub fn command(&mut self, cmd: AgentCommand) -> Result<()> {
+    pub fn command(&mut self, cmd: AgentCommand) {
         let channel = self.hub.write().get_or_create(AGENT_CHANNEL);
         match cmd {
             AgentCommand::Start => {
                 self.state = AgentState::Ok;
-                channel.sender.send(AgentEvent::Started)?;
+                let work_handles = self.work_handles.clone();
+                
+                println!("Workload handles: {}", work_handles.len());
+                // rerun defered workload handles
+                for wl in work_handles {
+                    
+                    let wl2 = wl.clone();
+                    
+                    let (status, workload) = AsyncRunner::block_on(async move {
+                        let wl = wl.read().await;
+                        (wl.status.clone(), wl.workload.as_ref().unwrap().clone())
+                    });
+                    
+                    if status == WorkloadStatus::None {
+                        self.run(workload);
+                    }
+
+                    AsyncRunner::block_on(async move {
+                        let mut handle = wl2.write().await;
+                        handle.status = WorkloadStatus::Complete;
+                    });
+                }
+                channel.sender.send(AgentEvent::Started).unwrap();                
             }
             AgentCommand::Schedule(_, _) => {}
             AgentCommand::Stop => {
                 self.state = AgentState::Stopped;
-                channel.sender.send(AgentEvent::Stopped)?;
+                channel.sender.send(AgentEvent::Stopped).unwrap();
             }
         }
-
-        Ok(())
     }
 
     /// Run a workload in the agent
     /// This will capture the statistics of the workload run and store it in
     /// the agent.
     pub fn run(&mut self, workload: Workload) -> Arc<tokio::sync::RwLock<WorkloadHandle>> {
+
+        if self.state == AgentState::Stopped {
+            info!("Agent stopped, Not running workload {}. Work will be deferred until the agent starts.", workload.id);
+            
+            let work_handle = Arc::new(tokio::sync::RwLock::new(WorkloadHandle {
+                id: workload.id,
+                join_handle: None,
+                status: WorkloadStatus::None,
+                workload:Some(workload),
+                ..Default::default()
+            }));
+
+            self.work_handles.push(work_handle.clone());
+
+            return work_handle;            
+        }
 
         let id = workload.id;
 
