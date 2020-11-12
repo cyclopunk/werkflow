@@ -4056,6 +4056,7 @@ dependencies = [
  "werkflow-core",
  "werkflow-datalayer",
  "werkflow-scripting",
+ "werkflow-web",
 ]
 
 [[package]]
@@ -4189,6 +4190,35 @@ dependencies = [
  "serde 1.0.117",
  "serde_json",
  "tokio 0.2.22",
+]
+
+[[package]]
+name = "werkflow-web"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-std",
+ "config",
+ "crossbeam-channel 0.5.0",
+ "custom_error",
+ "handlebars 3.5.1",
+ "lazy_static 1.4.0",
+ "log 0.4.11",
+ "machine-ip",
+ "parking_lot",
+ "pretty_env_logger",
+ "prometheus",
+ "rand 0.7.3",
+ "reqwest 0.10.8",
+ "serde 1.0.117",
+ "serde_json",
+ "tokio 0.2.22",
+ "tokio-test",
+ "warp",
+ "werkflow-agents",
+ "werkflow-config",
+ "werkflow-core",
+ "werkflow-scripting",
 ]
 
 [[package]]

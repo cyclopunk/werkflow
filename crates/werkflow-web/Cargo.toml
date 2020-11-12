@@ -1,0 +1,41 @@
+[package]
+name = "werkflow-web"
+description = "Web feature for the werkflow agent framework"
+version = "0.1.0"
+authors = ["Adam Shaw <discourse@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+
+werkflow-agents = {path = "../werkflow-agents"}
+werkflow-core = {path = "../werkflow-core"}
+werkflow-scripting = { path = "../werkflow-scripting"}
+werkflow-config = { path = "../werkflow-config"}
+
+serde = {version = "1.0.117", features = ["rc"]}
+serde_json = "1.0.59"
+log   = "0.4.11"
+
+pretty_env_logger = "0.4"
+
+tokio = { version = "0.2.22", features = ["full"] }
+warp = {version = "0.2", features = ["tls"] }
+
+config = {version = "0.10.1", features = ["json","yaml"]}
+lazy_static = "1.4.0"
+
+tokio-test = "0.3.0"
+
+handlebars = "3.5.1"
+
+parking_lot = "0.11"
+
+custom_error = "1.8.0"
+reqwest = { version = "0.10.8" }
+rand = "0.7.3"
+anyhow = "1.0.33"
+crossbeam-channel = "0.5.0"
+prometheus = "0.10.0"
+machine-ip = "0.2.1"
+
+async-std = { version = "1.7.0", features = ["tokio02"]}

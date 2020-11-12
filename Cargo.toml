@@ -17,6 +17,8 @@ werkflow-core = {path = "crates/werkflow-core"}
 werkflow-config = {path = "crates/werkflow-config"}
 werkflow-datalayer = {path = "crates/werkflow-datalayer"}
 werkflow-container = {path = "crates/werkflow-container"}
+werkflow-web = {path = "crates/werkflow-web"}
+
 tracing = "0.1.21"
 reqwest = "0.10.8"
 

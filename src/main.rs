@@ -10,10 +10,11 @@ use serde::{Deserialize, Serialize};
 use std::{net::Ipv4Addr, time::Duration, path::Path};
 use tokio::runtime::Builder;
 use anyhow::anyhow;
+use werkflow_web::*;
 
 
 
-use werkflow_agents::{AgentController, FeatureConfig, web::{WebConfiguration, WebFeature}};
+use werkflow_agents::{AgentController, FeatureConfig};
 use werkflow_config::ConfigSource;
 use werkflow_core::HttpAction;
 

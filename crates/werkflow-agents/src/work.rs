@@ -26,7 +26,7 @@ use werkflow_scripting::{EvalAltResult, RegisterFn, RegisterResultFn, Script, Sc
 pub struct WorkloadHandle {
     pub id: u128,
     pub status: WorkloadStatus,
-    pub(crate) join_handle: Option<JoinHandle<Result<String>>>,
+    pub join_handle: Option<JoinHandle<Result<String>>>,
     pub result: Option<String>,
 }
 
@@ -435,6 +435,27 @@ mod test {
         )
     }
 
+    /// ```
+    /// // more complex workload here.
+    ///     let r = Runtime::new().unwrap();
+    ///     let handle = r.handle().clone();
+    ///     let agent = AgentController::with_runtime("test-agent".into(), r);
+    /// 
+    ///     let script = Script::new(
+    ///     r#"                
+    ///     let ch = config("../../config/werkflow.toml");
+    /// 
+    ///              ch.add_record("autobuild.cloud", "test-script", "127.0.0.1");
+    /// 
+    ///              ch.start_container("test-g", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
+    ///           "#,
+    ///        );
+    ///        let workload = Workload::with_script(agent.clone(), script);
+    ///  
+    ///       handle.block_on(async move {
+    ///           &workload.run().await.unwrap();
+    ///      });
+    /// ```
     #[tokio::test(threaded_scheduler)]
     async fn test_stuff() {
         let agent = AgentController::new("Test Agent".into());
@@ -464,33 +485,4 @@ mod test {
         assert_eq!(user2.name, "Leanne Graham".to_string());
     }
 
-    #[test]
-    fn test_command_host() {
-        let r = Runtime::new().unwrap();
-        let handle = r.handle().clone();
-        let agent = AgentController::with_runtime("test-agent".into(), r);
-
-        let script = Script::new(
-            r#"                
-               let ch = config("../../config/werkflow.toml");
-
-               ch.add_record("autobuild.cloud", "test-script", "127.0.0.1");
-
-               ch.start_container("test-g", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
-            "#,
-        );
-        let workload = Workload::with_script(agent.clone(), script);
-     
-        handle.block_on(async move {
-            &workload.run().await.unwrap();
-        });
-        /*let workload2 = Workload::with_script(agent.clone(), script2);
-
-        let user = serde_json::from_str::<User>(&workload.run().await.unwrap()).unwrap();
-        let user2 = serde_json::from_str::<User>(&workload2.run().await.unwrap()).unwrap();
-
-        assert_eq!(11, user.id);
-        assert_eq!(1, user2.id);
-        assert_eq!(user2.name, "Leanne Graham".to_string());*/
-    }
 }

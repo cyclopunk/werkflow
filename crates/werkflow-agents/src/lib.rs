@@ -24,9 +24,8 @@ use work::{Workload, WorkloadHandle};
 
 pub mod cfg;
 pub mod comm;
-pub(crate) mod prom;
+pub mod prom;
 pub mod threads;
-pub mod web;
 pub mod work;
 
 pub mod channels {
@@ -79,8 +78,8 @@ pub struct FeatureConfig {
 
 #[derive(Clone)]
 pub struct AgentController {
-    agent: Arc<RwLock<Agent>>,
-    signal: Option<Sender<()>>,
+    pub agent: Arc<RwLock<Agent>>,
+    pub signal: Option<Sender<()>>,
 }
 
 impl Debug for AgentController {
@@ -254,31 +253,23 @@ impl <'a> FeatureHandle {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct AgentStatistics {
-    jobs_ran: u32,
-    successful_jobs: u32,
-    failed_jobs: u32,
-    total_runtime: u128,
-}
-
 pub struct Agent {
-    name: String,
-    features: Vec<FeatureHandle>,
-    state: AgentState,
-    runtime: Runtime,
-    hub: Arc<RwLock<Hub<AgentEvent>>>,
-    work_handles: Vec<Arc<tokio::sync::RwLock<WorkloadHandle>>>,
+    pub name: String,
+    pub features: Vec<FeatureHandle>,
+    pub state: AgentState,
+    pub runtime: Runtime,
+    pub hub: Arc<RwLock<Hub<AgentEvent>>>,
+    pub work_handles: Vec<Arc<tokio::sync::RwLock<WorkloadHandle>>>,
 }
 
 impl Agent {
-    fn new(name: &str) -> Agent {
+    pub fn new(name: &str) -> Agent {
         Agent {
             name: name.to_string(),
             ..Default::default()
         }
     }
-    fn with_runtime(name: &str, runtime: Runtime) -> Agent {
+    pub fn with_runtime(name: &str, runtime: Runtime) -> Agent {
         Agent {
             name: name.to_string(),
             features: Vec::default(),
@@ -288,7 +279,7 @@ impl Agent {
             hub: Arc::new(RwLock::new(Hub::new()))        
         }
     }
-    fn status(&self) -> AgentState {
+    pub fn status(&self) -> AgentState {
         self.state
     }
 
