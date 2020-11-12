@@ -1,8 +1,9 @@
+use bollard::models::{HostConfig, PortBinding, PortMap};
 use anyhow::Result;
 use bollard::container::{Config, CreateContainerOptions, StartContainerOptions};
 use bollard::image::CreateImageOptions;
 use bollard::{ClientVersion, Docker};
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 
 use futures_util::stream::TryStreamExt;
 
@@ -17,7 +18,7 @@ pub struct ContainerService {
 }
 
 impl ContainerService {
-    async fn connect_with_ssl(
+    pub async fn connect_with_ssl(
         url: &str,
         ssl_key: &Path,
         ssl_cert: &Path,
@@ -36,19 +37,70 @@ impl ContainerService {
         }
     }
 
-    async fn connect_with_http(url: &str) -> ContainerService {
+    pub async fn connect_with_http(url: &str) -> ContainerService {
         ContainerService {
             docker: Docker::connect_with_http(url, DEFAULT_TIMEOUT, API_DEFAULT_VERSION).unwrap(),
         }
     }
-    async fn create_and_start_container(
+    pub async fn default_connect() -> ContainerService {
+        ContainerService {
+            docker: Docker::connect_with_named_pipe_defaults().expect("could not connect to docker")
+        }
+    }
+    pub async fn start_container(
         &self,
-        container_name: &str,
-        image_name: &str,
-        env: &[&str],
+        container_name: String,
+        image_name: String,
+        env: &[String],
+        port_forward: HashMap<String, String> 
+    ) -> Result<()> {
+        
+        let mut port_map : PortMap = HashMap::new();
+
+        for (k,v) in port_forward {
+            let mut bindings: Vec<PortBinding> = Vec::new();
+
+            bindings.push(PortBinding {
+                host_ip: Some("127.0.0.1".into()),
+                host_port: Some(v)
+            });
+
+            port_map.insert(k, Some(bindings));
+        }
+
+        let config = Config {
+            image: Some(image_name.clone()),
+            env: Some(env.to_vec()),
+            host_config: Some(HostConfig {
+                port_bindings: Some(port_map),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        self.docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name: container_name.clone(),
+                }),
+                config,
+            )
+            .await?;
+
+        self.docker
+            .start_container(&container_name, None::<StartContainerOptions<String>>)
+            .await?;
+
+        Ok(())
+    }
+    pub async fn create_and_start_container(
+        &self,
+        container_name: String,
+        image_name: String,
+        env: &[String],
     ) -> Result<()> {
         let config = Config {
-            image: Some(image_name),
+            image: Some(image_name.clone()),
             env: Some(env.to_vec()),
             ..Default::default()
         };
@@ -56,7 +108,7 @@ impl ContainerService {
         self.docker
             .create_image(
                 Some(CreateImageOptions {
-                    from_image: image_name,
+                    from_image: image_name.clone(),
                     ..Default::default()
                 }),
                 None,
@@ -68,14 +120,14 @@ impl ContainerService {
         self.docker
             .create_container(
                 Some(CreateContainerOptions {
-                    name: container_name,
+                    name: container_name.clone(),
                 }),
                 config,
             )
             .await?;
 
         self.docker
-            .start_container(container_name, None::<StartContainerOptions<String>>)
+            .start_container(&container_name, None::<StartContainerOptions<String>>)
             .await?;
 
         Ok(())

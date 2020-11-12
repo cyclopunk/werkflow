@@ -4082,6 +4082,7 @@ dependencies = [
  "tokio-test",
  "warp",
  "werkflow-config",
+ "werkflow-container",
  "werkflow-core",
  "werkflow-datalayer",
  "werkflow-scripting",

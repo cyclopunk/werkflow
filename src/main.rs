@@ -80,7 +80,10 @@ fn main() -> Result<()> {
                 .await
                 .unwrap()
         };
-        let bind_address= config.web.as_ref().unwrap().bind_address.to_string();
+        let bind_address = config.web
+            .as_ref()
+            .unwrap_or(&WebConfiguration::default())
+            .bind_address.to_string();
         let configure_tls = config.web.as_ref().map(|o| match o.tls.as_ref() {
             Some(conf) => conf,
             None => panic!("Missing TLS configuration. Werkflow agents require this configuration.")

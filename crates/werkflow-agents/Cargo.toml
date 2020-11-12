@@ -9,6 +9,7 @@ edition = "2018"
 
 werkflow-core = {path = "../werkflow-core"}
 werkflow-scripting = { path = "../werkflow-scripting"}
+werkflow-container = { path = "../werkflow-container"}
 werkflow-datalayer = { path = "../werkflow-datalayer"}
 werkflow-config = { path = "../werkflow-config"}
 

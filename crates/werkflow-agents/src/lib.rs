@@ -47,8 +47,7 @@ impl<'a> Default for Agent {
             runtime: Runtime::new().unwrap(),
             state: AgentState::Stopped,
             work_handles: Vec::default(),
-            hub: Arc::new(RwLock::new(Hub::new())),
-            statistics: Arc::new(RwLock::new(AgentStatistics::default())),
+            hub: Arc::new(RwLock::new(Hub::new()))
         };
 
         agt
@@ -267,7 +266,6 @@ pub struct Agent {
     name: String,
     features: Vec<FeatureHandle>,
     state: AgentState,
-    statistics: Arc<RwLock<AgentStatistics>>,
     runtime: Runtime,
     hub: Arc<RwLock<Hub<AgentEvent>>>,
     work_handles: Vec<Arc<tokio::sync::RwLock<WorkloadHandle>>>,
@@ -287,8 +285,7 @@ impl Agent {
             runtime: runtime,
             state: AgentState::Stopped,
             work_handles: Vec::default(),
-            hub: Arc::new(RwLock::new(Hub::new())),
-            statistics: Arc::new(RwLock::new(AgentStatistics::default())),
+            hub: Arc::new(RwLock::new(Hub::new()))        
         }
     }
     fn status(&self) -> AgentState {
@@ -316,31 +313,36 @@ impl Agent {
     /// This will capture the statistics of the workload run and store it in
     /// the agent.
     pub fn run(&mut self, workload: Workload) -> Arc<tokio::sync::RwLock<WorkloadHandle>> {
+
         let id = workload.id;
 
-        self.statistics.write().jobs_ran += 1;
-
-        let stats = self.statistics.clone();
+        prom::WORKLOAD_START.inc();
 
         let jh = self.runtime.spawn(async move {
-            info!("Running workload {}.", id);
+            info!("[Workload {}] Running.", id);
 
             let start = Instant::now();
 
             let result = workload.run().await;
+            let mills = start.elapsed().as_millis();
 
-            let duration = start.elapsed();
+            info!("[Workload {}] Duration: {}ms", id, mills as f64);
 
-            stats.write().total_runtime += duration.as_millis();
+
+            prom::WORKLOAD_TOTAL_TIME.inc_by(mills as i64);
+            crate::prom::WORKLOAD_TIME_COLLECTOR
+                .with_label_values(&["processing_time"])
+                .observe(mills as f64 / 1000.);
 
             match result {
                 Ok(wl) => {
-                    stats.write().successful_jobs += 1;
+                    prom::WORKLOAD_COMPLETE.inc();
 
                     Ok(wl)
                 }
                 Err(_) => {
-                    stats.write().failed_jobs += 1;
+                    prom::WORKLOAD_ERROR.inc();
+
                     Err(anyhow!("Workload run failed."))
                 }
             }

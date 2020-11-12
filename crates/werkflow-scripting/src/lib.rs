@@ -1,12 +1,13 @@
 use log::{debug, info};
 use rand::prelude::*;
 use rhai::Scope;
+use serde_json::Value;
 use std::fmt;
 
 pub use rhai::serde::*;
 
 pub use rhai::{
-    Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn, RegisterResultFn,
+    Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn, RegisterResultFn, Array
 };
 
 use serde::{Deserialize, Serialize};
@@ -47,6 +48,8 @@ impl Script {
         };
     }
 }
+/// Wrapper object for the underlying scripting engine.
+
 pub struct ScriptHost<'a> {
     pub engine: Engine,
     pub scope: Scope<'a>,
@@ -69,13 +72,14 @@ impl fmt::Display for ScriptHostError {
 // Implement std::fmt::Debug for AppError
 impl fmt::Debug for ScriptHostError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{ file: {}, line: {} }}", self.file, self.line) // programmer-facing output
+        write!(f, "{{ file: {}, line: {} error: {} }}", self.file, self.line,self.error_text) // programmer-facing output
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ScriptResult {
-    pub underlying: Dynamic,
+    is_error: bool,
+    pub underlying: Value,
 }
 
 impl ScriptResult {
@@ -84,20 +88,10 @@ impl ScriptResult {
         for<'de> T: Deserialize<'de>,
     {
         let bare_str = self.underlying.as_str().unwrap_or_default();
-
-        if self.underlying.is::<String>() {
-            if let Ok(obj) = serde_json::from_str(bare_str) {
-                Ok(obj)
-            } else {
-                // support for returned raw strings
-                Ok(serde_json::from_str(&format!("\"{}\"", bare_str)).unwrap())
-            }
-        } else {
-            from_dynamic::<T>(&self.underlying).map_err(|_err| ScriptHostError {
-                error_text: format!("Could not deserialize {} into struct", bare_str).into(),
-                ..Default::default()
-            })
-        }
+        serde_json::from_value::<T>(self.underlying.clone()).map_err(|_err| ScriptHostError {
+            error_text: format!("Could not deserialize {} into struct", bare_str).into(),
+            ..Default::default()
+        })       
     }
 }
 
@@ -138,10 +132,29 @@ impl<'a> ScriptHost<'a> {
         );
 
         match d {
-            Ok(r) => Ok(ScriptResult { underlying: r }),
+            Ok(r) => {
+
+                let bare_str = r.as_str().unwrap_or_default();
+
+                let val: Value = if r.is::<String>() {
+                    
+                    if let Ok(obj) = serde_json::from_str(bare_str) {
+                        obj
+                    } else {
+                        // support for returned raw strings
+                        serde_json::from_str(&format!("\"{}\"", bare_str)).unwrap()
+                    }
+                } else {
+                    from_dynamic::<Value>(&r).map_err(|_err| ScriptHostError {
+                        error_text: format!("Could not deserialize {} into struct", bare_str).into(),
+                        ..Default::default()
+                    })?
+                };
+                Ok(ScriptResult { is_error: false, underlying: serde_json::to_value(val).unwrap() })
+            },
             Err(err) => {
-                info!("Error running script {:?}", err);
-                Err(err)
+                println!("Error running script {:?}", err);
+                Ok(ScriptResult { is_error: true, underlying: serde_json::to_value(err.to_string()).unwrap() })
             }
         }
     }

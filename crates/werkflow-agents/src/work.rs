@@ -7,7 +7,7 @@ use werkflow_core::{
     sec::{DnsProvider, Zone},
     HttpAction,
 };
-use werkflow_scripting::{ImmutableString};
+use werkflow_scripting::{Array, ImmutableString};
 
 use log::{error, trace};
 use rand::Rng;
@@ -39,7 +39,7 @@ impl Clone for WorkloadHandle {
     fn clone(&self) -> Self {
         return WorkloadHandle {
             id: self.id,
-            status: self.status,
+            status: self.status.clone(),
             join_handle: None,
             result: None,
         };
@@ -59,8 +59,6 @@ mod http {
     pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {
         println!("Getting {}", url);
         let l_url = url.clone();
-
-        //let task = tokio::task::spawn_blocking(move || task::block_on(async_get(l_url.clone())).unwrap() );
 
         Ok(AsyncRunner::block_on(async_get(l_url.clone())))
     }
@@ -126,10 +124,10 @@ pub struct Workload {
     agent_handle: AgentController,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum WorkloadStatus {
     Running,
-    Error(&'static str),
+    Error(String),
     Complete,
     None,
 }
@@ -282,29 +280,64 @@ impl CommandHost {
             config: config.unwrap(),
         }
     }
-    fn dns_add_record(
-        &self,
-        zone: Zone,
-        record: ZoneRecord,
-    ) -> Result<Dynamic, Box<EvalAltResult>> {
+    fn create_container(&mut self, 
+        name : ImmutableString, 
+        image : ImmutableString, 
+        env : Array) {
+        
+        let s =  AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+        let environment : Vec<String> = env.iter().map(|s| s.to_string()).collect::<Vec<String>>().clone();
+
+        AsyncRunner::block_on(async move { 
+            s.create_and_start_container(name.to_string(),image.to_string(), environment.as_slice())
+                .await
+                .unwrap();
+        });
+    }
+    
+    /// Start a container from an image name.
+    /// Env is a list of strings VAR=WHATEVER
+    /// port_forward is a map of strings such that the rhai map literal #{ "3000/tcp": "3000"  } would map local port 3000 to 3000/tcp
+    fn start_container(&mut self, 
+        name : ImmutableString, 
+        image : ImmutableString, 
+        env : Array,
+        ports: Map) {
+        
+        let s =  AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+        // convert envs and forwards.
+        let environment : Vec<String> = env.iter().map(|s| s.to_string()).collect::<Vec<String>>().clone();
+        let mut forwards : HashMap<String, String> = HashMap::new();
+        
+        ports.iter().for_each(|(k, v)| {
+            forwards.insert(k.to_string(), v.to_string());
+        });
+
+        AsyncRunner::block_on(async move { 
+            s.start_container(name.to_string(),image.to_string(), environment.as_slice(), forwards.clone())
+                .await
+                .unwrap();
+        });
+    }
+    // add a DNS A record
+    fn add_a_record(
+        &mut self,
+        zone: String,
+        host: String,
+        target: String
+    ) {
         if let Some(dns_cfg) = &self.config.dns {
             let provider = DnsProvider::new(&dns_cfg.api_key).unwrap();
 
             let result =
-                AsyncRunner::block_on(async move { provider.add_or_replace(&zone, &record).await });
+                AsyncRunner::block_on(async move { provider.add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target)).await });
 
             match result {
-                Ok(_) => Ok(to_dynamic("").unwrap()),
-                Err(err) => Err(Box::new(EvalAltResult::ErrorRuntime(
-                    format!("Error adding record {}", err).into(),
-                    werkflow_scripting::Position::new(0, 0),
-                ))),
-            }
+                Ok(_) => print!("Zone added"),
+                Err(err) => println!("Error adding zone: {}", err),
+            };
         } else {
-            Err(Box::new(EvalAltResult::ErrorRuntime(
-                format!("Could not find dns configuration").into(),
-                werkflow_scripting::Position::new(0, 0),
-            )))
+            println!("No DNS Configuration");
         }
     }
 }
@@ -332,14 +365,16 @@ impl Workload {
             .agent_handle
             .send(AgentEvent::WorkStarted(self.clone()))
             .unwrap();
-        // Would like to refactor this so types can be infered from use, maybe a proc macro
-        // to create all of the funcs
 
+        // register command host functions, this will likely be refactored into different
+        // modules e.g. Web, DNS, Container, Cloud
         script_host.with_engine(|e| {
             e.register_type::<CommandHost>();
             e.register_fn("config", CommandHost::new_ch);
             e.register_fn("config_web", CommandHost::new_ch_web);
-            e.register_result_fn("add_record", CommandHost::dns_add_record);
+            e.register_fn("add_record", CommandHost::add_a_record);
+            e.register_fn("start_container", CommandHost::start_container);
+            e.register_fn("create_container", CommandHost::create_container);
             e.register_result_fn("get", http::get);
             e.register_result_fn("post", http::post);
         });
@@ -351,9 +386,9 @@ impl Workload {
                 println!("Done executing script {:?}", result);
                 Ok(result.underlying.to_string())
             }
-            _ => {
+            Err(err) => {
                 error!("Error running script");
-                Err(anyhow!("Unknown error executing script"))
+                Err(anyhow!("Unknown error executing script {}", err))
             }
         }
     }
@@ -364,6 +399,7 @@ mod test {
     use super::*;
     use serde::*;
     
+    use tokio::runtime::Runtime;
     use werkflow_scripting::Engine;
 
     #[derive(Serialize, Deserialize, PartialEq, Default)]
@@ -426,5 +462,35 @@ mod test {
         assert_eq!(11, user.id);
         assert_eq!(1, user2.id);
         assert_eq!(user2.name, "Leanne Graham".to_string());
+    }
+
+    #[test]
+    fn test_command_host() {
+        let r = Runtime::new().unwrap();
+        let handle = r.handle().clone();
+        let agent = AgentController::with_runtime("test-agent".into(), r);
+
+        let script = Script::new(
+            r#"                
+               let ch = config("../../config/werkflow.toml");
+
+               ch.add_record("autobuild.cloud", "test-script", "127.0.0.1");
+
+               ch.start_container("test-g", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
+            "#,
+        );
+        let workload = Workload::with_script(agent.clone(), script);
+     
+        handle.block_on(async move {
+            &workload.run().await.unwrap();
+        });
+        /*let workload2 = Workload::with_script(agent.clone(), script2);
+
+        let user = serde_json::from_str::<User>(&workload.run().await.unwrap()).unwrap();
+        let user2 = serde_json::from_str::<User>(&workload2.run().await.unwrap()).unwrap();
+
+        assert_eq!(11, user.id);
+        assert_eq!(1, user2.id);
+        assert_eq!(user2.name, "Leanne Graham".to_string());*/
     }
 }

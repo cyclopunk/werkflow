@@ -158,9 +158,10 @@ mod handlers {
         let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
         agent.runtime.spawn(async move {
-            let _id = wl_handle.read().await.id;
+            let id = wl_handle.read().await.id;
+            info!("Starting job {}", id);
             let mut handle = wl_handle.write().await;
-            let jh = wl_handle.write().await.join_handle.take();
+            let jh = handle.join_handle.take();
 
             if let Some(h) = jh {
                 match h
@@ -169,15 +170,21 @@ mod handlers {
                     .unwrap()
                 {
                     Ok(result) => {
+                        info!("Job {} completed. Result: {}", id, result);
                         handle.result = Some(result);
+                        
+                        handle.status = crate::work::WorkloadStatus::Complete;
                     }
                     Err(err) => {
-                        anyhow!("Workload error thrown: {}", err);
+                        let err_string = err.to_string().clone();
+                        anyhow!("Workload error thrown for job {}: {}", id, err_string);
+                        handle.status = crate::work::WorkloadStatus::Error(err_string);
                     }
                 }
-
-                handle.status = crate::work::WorkloadStatus::Complete;
+                
             }
+
+            drop(handle);
         });
 
         Ok(format!("Started job"))
@@ -186,11 +193,13 @@ mod handlers {
     pub async fn list_jobs<'a>(
         controller: AgentController,
     ) -> Result<impl warp::Reply, Infallible> {
+        info!("Read lock on agent");
         let work = controller.agent.read().work_handles.clone();
-
+        info!("Got Read lock on agent");
         let mut vec: Vec<model::JobResult> = Vec::new();
 
         for jh in work {
+            info!("Read lock on job handle");
             let wh = jh.read().await;
 
             vec.push(model::JobResult {
@@ -198,6 +207,9 @@ mod handlers {
                 status: wh.status.to_string(),
                 result_string: wh.result.clone().unwrap_or_default(),
             });
+            info!("Done read lock on job handle");
+
+            drop(wh);
         }
 
         Ok(serde_json::to_string(&vec).unwrap())
@@ -290,10 +302,10 @@ impl Feature for WebFeature {
 
                 self.shutdown = Some(tx);
 
-                // Add custom metrics 
-                
+                register_custom_metrics();
+
+                // Use a log wrapper to add metrics to all of the calls.
                 let log = warp::log::custom(|info| {
-                    // Use a log macro, or slog, or println, or whatever!
                     crate::prom::INCOMING_REQUESTS.inc();
                     crate::prom::RESPONSE_CODE_COLLECTOR
                         .with_label_values(&[
@@ -312,14 +324,13 @@ impl Feature for WebFeature {
                     .or(filters::metrics())
                     .with(log);
 
-                let mut server;
-
-                if let Some(tls) = config.tls {
-                    server = warp::serve(api)
+                let server= if let Some(tls) = config.tls {
+                    warp::serve(api)
                         .tls()
                         .key_path(tls.private_key_path)
-                        .cert_path(tls.certificate_path);
+                        .cert_path(tls.certificate_path)
                 } else  {
+                    // Insecure stuff sucks
                     panic!("Web feature is not supported without TLS.")
                 }
 
@@ -339,8 +350,6 @@ impl Feature for WebFeature {
                     f.runtime.spawn(srv);
                 });
 
-                register_custom_metrics();
-
                 info!("Webservice spawned into another thread.");
             }
             AgentEvent::Stopped => {
@@ -351,10 +360,18 @@ impl Feature for WebFeature {
                         .map_err(|_err| anyhow!("Error sending signal to web service"));
                 }
             }
-            AgentEvent::PayloadReceived(_payload) => {}
-            AgentEvent::WorkStarted(_workload) => {}
-            AgentEvent::WorkErrored(_err) => {}
-            AgentEvent::WorkComplete(_result) => {}
+            AgentEvent::PayloadReceived(_payload) => {
+                // todo
+            }
+            AgentEvent::WorkStarted(_workload) => {
+                // todo
+            }
+            AgentEvent::WorkErrored(_err) => {
+                // todo
+            }
+            AgentEvent::WorkComplete(_result) => {
+                // todo
+            }
         }
     }
 }
@@ -384,7 +401,8 @@ mod test {
             agent
                 .add_feature(WebFeature::new(WebConfiguration {
                     bind_address: "127.0.0.1".parse().unwrap(),
-                    port: 3030                    
+                    port: 3030 ,                 
+                    tls: None  
                 }))
                 .start()
                 .await
