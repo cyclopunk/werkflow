@@ -181,6 +181,7 @@ impl CertificateProvider {
         let order = self
             .account
             .create_order(&domains)
+            .await
             .map_err(|err| anyhow!("Error creating LetsEncrypt Order {}", err))?;
         let mut certificates: Vec<SignedCertificate> = Vec::new();
         for challenge in order.get_dns_challenges() {
@@ -200,12 +201,13 @@ impl CertificateProvider {
             std::thread::sleep(Duration::from_secs(30));
             
             challenge
-                .validate(&self.account)
+                .validate(&self.account, Duration::from_secs(10))
+                .await
                 .map_err(|err| anyhow!("Validation failed {}", err))?;
 
             let signer = self.account.certificate_signer();
 
-            let cert = signer.sign_certificate(&order).unwrap();
+            let cert = signer.sign_certificate(&order).await.unwrap();
 
             certificates.push(cert);
         }
@@ -216,12 +218,14 @@ impl CertificateProvider {
         use acme2_slim::Directory;
 
         let directory = Directory::lets_encrypt()
+            .await
             .map_err(|err| anyhow!("Error creating LetsEncrypt directory: {}", err))?;
 
         let account = directory
             .account_registration()
             //.email(email)
             .register()
+            .await
             .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
 
         Ok(CertificateProvider {
@@ -259,8 +263,10 @@ mod test {
 
             for (i, cert) in certs.iter().enumerate() {
                 cert.save_signed_certificate(format!("config/{}.cer", &domains[i]))
+                    .await
                     .map_err(|err| anyhow!("Could not save certificate: {}", err))?;
                 cert.save_private_key(format!("config/{}.key", &domains[i]))
+                    .await
                     .map_err(|err| anyhow!("Could not save private_key: {}", err))?;
             }
 

@@ -377,6 +377,7 @@ impl Workload {
             e.register_fn("add_record", CommandHost::add_a_record);
             e.register_fn("start_container", CommandHost::start_container);
             e.register_fn("create_container", CommandHost::create_container);
+            e.register_fn("my_ip", machine_ip::get);
             e.register_result_fn("get", http::get);
             e.register_result_fn("post", http::post);
         });
@@ -466,6 +467,7 @@ mod test {
             r#"                
                 let user = post("https://jsonplaceholder.typicode.com/users", #{ name: "Test".to_string() } );
                 print("user: " + user);
+                print("my ip" + my_ip);
                 user
             "#,
         );

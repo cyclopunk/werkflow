@@ -26,4 +26,4 @@ crossbeam-channel = "0.5.0"
 
 cloudflare-rs = "0.6.6"
 
-acme2-slim = {path = "../../../acme2-slim"}
+acme2-slim = "0.2.0"

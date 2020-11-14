@@ -114,8 +114,8 @@ fn main() -> Result<()> {
                     .await.expect("Could order with DNS.");
     
                 for (_i, cert) in certs.iter().enumerate() {
-                    cert.save_signed_certificate("config/agent.crt").expect("could not save signed certificate");
-                    cert.save_private_key("config/agent.key").expect("Could not save private key");
+                    cert.save_signed_certificate("config/agent.crt").await.expect("could not save signed certificate");
+                    cert.save_private_key("config/agent.key").await.expect("Could not save private key");
                 }
             }
         }
