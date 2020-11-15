@@ -167,7 +167,7 @@ where
         .register_template_file(&template_name, format!("templates/{}", template_name))
         .expect("load template file");
 
-    let mut script_host = ScriptHost::new();
+    let mut script_host = ScriptHost::with_default_plugins();
 
     let host_state = state.read().await.clone();
 

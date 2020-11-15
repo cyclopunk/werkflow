@@ -229,7 +229,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host() {
         init();
-        let mut sh = ScriptHost::new();
+        let mut sh = ScriptHost::with_default_plugins();
         let script = r#"
         print ("Hello" + " World");
         "test"
@@ -244,7 +244,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host_adv() {
         init();
-        let mut sh = ScriptHost::new();
+        let mut sh = ScriptHost::with_default_plugins();
         let script = r#"
         print ("Advanced Test");
         #{

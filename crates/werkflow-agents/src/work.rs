@@ -1,4 +1,5 @@
-use crate::cfg::AgentConfiguration;
+use werkflow_scripting::ScriptHostPlugin;
+use crate::{cfg::AgentConfiguration, plugins};
 use crate::AsyncRunner;
 use itertools::Itertools;
 use werkflow_config::read_config;
@@ -54,72 +55,6 @@ impl WorkloadHandle {
     pub fn get_status() {}
 }
 
-mod http {
-    use crate::threads::AsyncRunner;
-
-    use super::*;
-
-    pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {
-        println!("Getting {}", url);
-        let l_url = url.clone();
-
-        Ok(AsyncRunner::block_on(async_get(l_url.clone())))
-    }
-
-    pub fn post(url: &'static str, body: Map) -> Result<Dynamic, Box<EvalAltResult>> {
-        let l_url = url.clone();
-
-        Ok(AsyncRunner::block_on(async_post(
-            l_url.clone(),
-            SerMap { underlying: body },
-        )))
-    }
-
-    pub async fn async_get(url: &str) -> Dynamic {
-        let response = reqwest::Client::new()
-            .get(url)
-            .header("User-Agent", "werkflow-agent/0.1.0")
-            .send()
-            .await
-            .map_err(|err| anyhow!("Error contacting url {}, {}", url, err))
-            .unwrap()
-            .text()
-            .await
-            .map_err(|err| anyhow!("Could not make the result text, {}", err))
-            .unwrap();
-
-        to_dynamic(response).unwrap()
-    }
-
-    /// Convert a dynamic to a JSON string, use it as the body of a post request, and then respond with the
-    /// same type
-    /// This allows scripts to use maps of any time to call this:
-    /// let user = post(url, #{ fieldOnT: someSetting })
-    pub async fn async_post(url: &str, body: SerMap) -> Dynamic {
-        let body = serde_json::to_string(&body)
-            .map_err(|_err| anyhow!("Error contacting url {}", url))
-            .unwrap();
-
-        let response = reqwest::Client::new()
-            .post(url)
-            .body(body)
-            .header("User-Agent", "werkflow-agent/0.1.0")
-            .send()
-            .await
-            .map_err(|_err| anyhow!("Error contacting url {}", url))
-            .unwrap()
-            .text()
-            .await
-            .map_err(|_err| anyhow!("Could not make the result text"))
-            .unwrap();
-
-        to_dynamic(response)
-            .map_err(|_err| anyhow!("Could not make result from script dynamic"))
-            .unwrap()
-        //Ok(to_dynamic(response)?)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Workload {
     pub id: u128,
@@ -158,7 +93,7 @@ impl Into<WorkloadData> for ScriptResult {
 }
 
 pub struct SerMap {
-    underlying: Map,
+    pub(crate) underlying: Map,
 }
 
 enum SerializableField {
@@ -264,6 +199,21 @@ impl Serialize for SerMap {
 pub struct CommandHost {
     config: AgentConfiguration,
 }
+
+struct CommandHostPlugin;
+
+impl ScriptHostPlugin for CommandHostPlugin {
+    fn init(&self, host: &mut ScriptHost) { 
+       host.engine.register_type::<CommandHost>()
+       .register_fn("configure", CommandHost::new_ch)
+       .register_fn("configure_web", CommandHost::new_ch_web)
+       .register_fn("add_record", CommandHost::add_a_record)
+       .register_fn("start_container", CommandHost::start_container)
+       .register_fn("create_container", CommandHost::create_container)
+       .register_fn("ip", CommandHost::get_ip);
+    }
+}
+
 
 impl CommandHost {
     fn new_ch(filename: ImmutableString) -> CommandHost {
@@ -419,26 +369,16 @@ impl Workload {
     }
 
     pub async fn run(&self) -> Result<String> {
-        let mut script_host = ScriptHost::new();
+        let mut script_host = ScriptHost::with_default_plugins();
 
         let _ = self
             .agent_handle
             .send(AgentEvent::WorkStarted(self.clone()))
             .unwrap();
 
-        // register command host functions, this will likely be refactored into different
-        // modules e.g. Web, DNS, Container, Cloud
-        script_host.with_engine(|e| {
-            e.register_type::<CommandHost>();
-            e.register_fn("config", CommandHost::new_ch);
-            e.register_fn("config_web", CommandHost::new_ch_web);
-            e.register_fn("add_record", CommandHost::add_a_record);
-            e.register_fn("start_container", CommandHost::start_container);
-            e.register_fn("create_container", CommandHost::create_container);
-            e.register_fn("ip", CommandHost::get_ip);
-            e.register_result_fn("get", http::get);
-            e.register_result_fn("post", http::post);
-        });
+        script_host
+            .add_plugin(CommandHostPlugin)
+            .add_plugin(plugins::http::Plugin);
 
         trace!("Executing script");
 
