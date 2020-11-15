@@ -1,9 +1,9 @@
-
-use std::{net::Ipv4Addr, sync::Arc};
+use handlebars::Handlebars;
+use std::{net::Ipv4Addr, sync::Arc, fs};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
-use werkflow_scripting::HostState;
+use werkflow_scripting::state::HostState;
 
 
 
@@ -110,12 +110,30 @@ impl Feature for WebFeature {
                         .inc();
                 });
 
+                let mut hb = Handlebars::new();
+                
+                let paths = fs::read_dir("./templates").expect("Could not iterate templates");
+
+                for p in paths {
+                    let file = p.unwrap();
+                    let file_name = file.file_name();
+                    let file_name = file_name.to_str().unwrap();
+                    
+                    hb
+                        .register_template_file(file_name, file.path())
+                        .expect("load template file");
+                    info!("Registered template {}", file_name)
+                }
+
+                let hb = Arc::new(hb);
+                
+
                 let api = agent_status(controller.clone())
                     .or(filters::stop_agent(controller.clone()))
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
                     .or(filters::list_jobs(controller.clone()))
-                    .or(filters::templates(controller.clone(), state.clone()))
+                    .or(filters::templates(controller.clone(), state.clone(), hb.clone()))
                     .or(filters::metrics())
                     .with(log);
 

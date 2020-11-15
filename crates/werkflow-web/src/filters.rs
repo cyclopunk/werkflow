@@ -1,8 +1,8 @@
 use std::{sync::Arc};
 use tokio::sync::RwLock;
 use warp::Filter;
-use werkflow_scripting::{HostState, Script};
-
+use werkflow_scripting::{state::HostState, Script};
+use handlebars::{Handlebars};
 use crate::{handlers, AgentController};
 
 fn with_agent(
@@ -13,6 +13,11 @@ fn with_agent(
 fn with_state(
     state: Arc<RwLock<HostState>>,
 ) -> impl Filter<Extract = (Arc<RwLock<HostState>>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || state.clone())
+}
+fn with_templates(
+    state: Arc<Handlebars>,
+) -> impl Filter<Extract = (Arc<Handlebars>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || state.clone())
 }
 pub fn metrics() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -67,13 +72,17 @@ pub fn list_jobs(
         .and_then(handlers::list_jobs)
 }
 
-pub fn templates(
+pub fn templates<'a>(
     _agent: AgentController,
     state: Arc<RwLock<HostState>>,
-) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    hb: Arc<Handlebars<'a>>
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone + 'a {
     warp::path!("content" / String)
-        .and(warp::post())
+        .and(warp::any())
         .and(warp::body::stream())
         .and(with_state(state))
+        .and(with_templates(hb))
         .and_then(handlers::process_template)
 }
+
+

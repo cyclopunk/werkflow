@@ -443,7 +443,7 @@ mod test {
     ///
     ///     let script = Script::new(
     ///     r#"                
-    ///            let ch = config("../../config/werkflow.toml");
+    ///            let ch = configure("../../config/werkflow.toml");
     ///
     ///            ch.add_record("autobuild.cloud", "test-script", ip());
     ///

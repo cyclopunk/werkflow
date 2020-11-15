@@ -11,7 +11,7 @@ use werkflow_agents::{
     work::{Workload, WorkloadStatus},
     AgentCommand, AgentController,
 };
-use werkflow_scripting::{HostState, Script, ScriptHost};
+use werkflow_scripting::{state::HostState, Script, ScriptHost};
 
 use crate::model;
 
@@ -146,13 +146,13 @@ pub async fn process_template<S, B>(
     template_name: String,
     script: S,
     state: Arc<RwLock<HostState>>,
+    handlebars: Arc<handlebars::Handlebars<'_>>
 ) -> Result<impl warp::Reply, Infallible>
 where
     S: Stream<Item = Result<B, warp::Error>>,
     S: StreamExt,
     B: warp::Buf,
 {
-    let mut handlebars = Handlebars::new();
 
     let mut pinned_stream = Box::pin(script);
 
@@ -163,13 +163,12 @@ where
         script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
     }
 
-    handlebars
-        .register_template_file(&template_name, format!("templates/{}", template_name))
-        .expect("load template file");
-
     let mut script_host = ScriptHost::with_default_plugins();
 
-    let host_state = state.read().await.clone();
+    let host_state = state
+        .read()
+        .await
+        .clone();
 
     script_host.scope.push("state", host_state);
 
@@ -180,6 +179,7 @@ where
     let html = handlebars
         .render(&template_name, &result.underlying)
         .unwrap();
+
     let mut state = state.write().await;
 
     *state = script_host.scope.get_value("state").unwrap();

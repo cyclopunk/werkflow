@@ -1,8 +1,8 @@
-use crate::state::HostState;
 use log::{debug, info};
 use rand::prelude::*;
 use rhai::Scope;
 use serde_json::Value;
+use state::HostState;
 use std::{collections::HashMap, fmt};
 
 pub use rhai::serde::*;
@@ -15,7 +15,7 @@ pub use rhai::{
 use serde::{Deserialize, Serialize};
 
 mod functions;
-mod state;
+pub mod state;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct ScriptIdentifier {
