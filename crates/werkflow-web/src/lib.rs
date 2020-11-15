@@ -1,20 +1,20 @@
-use std::net::Ipv4Addr;
+use handlebars::Handlebars;
+use std::{net::Ipv4Addr, sync::Arc, fs};
+use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
-use std::convert::Infallible;
+use werkflow_scripting::state::HostState;
 
-use anyhow::anyhow;
+
 
 use log::info;
-use tokio::{
-    sync::oneshot::{self, Sender},
-};
+use tokio::sync::oneshot::{self, Sender};
 
 //use handlebars::Handlebars;
 
 use warp::Filter;
 
-use werkflow_agents::{comm::AgentEvent, AgentController, Feature, FeatureConfig, FeatureHandle};
+use werkflow_agents::{comm::AgentEvent, AgentController, Feature, FeatureHandle};
 
 use self::filters::agent_status;
 
@@ -31,7 +31,7 @@ pub struct WebFeature {
     agent: Option<AgentController>,
 }
 
-impl <'a> WebFeature {
+impl<'a> WebFeature {
     pub fn new(config: impl ConfigDefinition + Serialize) -> FeatureHandle {
         FeatureHandle::new(WebFeature {
             config: WebConfiguration::merge(config).expect("To merge configs"),
@@ -41,18 +41,17 @@ impl <'a> WebFeature {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WebConfiguration {
     pub bind_address: Ipv4Addr,
     pub port: u16,
-    pub tls: Option<TlsConfiguration>
+    pub tls: Option<TlsConfiguration>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TlsConfiguration {
-    pub private_key_path : String,
-    pub certificate_path : String
+    pub private_key_path: String,
+    pub certificate_path: String,
 }
 
 impl Default for WebConfiguration {
@@ -62,20 +61,15 @@ impl Default for WebConfiguration {
             port: 3030,
             tls: Some(TlsConfiguration {
                 private_key_path: "config/agent.key".into(),
-                certificate_path: "config/agent.crt".into()
-            })
+                certificate_path: "config/agent.crt".into(),
+            }),
         }
     }
 }
 
-impl ConfigDefinition for WebConfiguration {
+impl ConfigDefinition for WebConfiguration {}
 
-}
-
-impl ConfigDefinition for TlsConfiguration {
-
-}
-
+impl ConfigDefinition for TlsConfiguration {}
 
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentController) {
@@ -90,11 +84,12 @@ impl Feature for WebFeature {
         match event {
             AgentEvent::Started => {
                 if let Some(_) = self.shutdown {
-                    return
+                    return;
                 }
-                
+
                 info!("Starting the web service");
-                
+
+                let state = Arc::new(RwLock::new(HostState::new()));
                 let controller = self.agent.clone().unwrap();
                 let config = self.config.clone();
                 let (tx, rx) = oneshot::channel();
@@ -115,20 +110,39 @@ impl Feature for WebFeature {
                         .inc();
                 });
 
+                let mut hb = Handlebars::new();
+                
+                let paths = fs::read_dir("./templates").expect("Could not iterate templates");
+
+                for p in paths {
+                    let file = p.unwrap();
+                    let file_name = file.file_name();
+                    let file_name = file_name.to_str().unwrap();
+                    
+                    hb
+                        .register_template_file(file_name, file.path())
+                        .expect("load template file");
+                    info!("Registered template {}", file_name)
+                }
+
+                let hb = Arc::new(hb);
+                
+
                 let api = agent_status(controller.clone())
                     .or(filters::stop_agent(controller.clone()))
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
                     .or(filters::list_jobs(controller.clone()))
+                    .or(filters::templates(controller.clone(), state.clone(), hb.clone()))
                     .or(filters::metrics())
                     .with(log);
 
-                let server= if let Some(tls) = config.tls {
+                let server = if let Some(tls) = config.tls {
                     warp::serve(api)
                         .tls()
                         .key_path(tls.private_key_path)
                         .cert_path(tls.certificate_path)
-                } else  {
+                } else {
                     // Insecure stuff sucks
                     panic!("Web feature is not supported without TLS.")
                 };
@@ -138,12 +152,10 @@ impl Feature for WebFeature {
                     config.bind_address, config.port
                 );
 
-                let (_, srv) = server.bind_with_graceful_shutdown(
-                    (config.bind_address, config.port),
-                    async {
+                let (_, srv) =
+                    server.bind_with_graceful_shutdown((config.bind_address, config.port), async {
                         rx.await.ok();
-                    },
-                );
+                    });
 
                 controller.with_read(|f| {
                     f.runtime.spawn(srv);
@@ -178,9 +190,9 @@ impl Feature for WebFeature {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use std::time::Duration;
-use super::*;
-    
+
     use tokio::runtime::Builder;
 
     #[test]
@@ -197,26 +209,23 @@ use super::*;
         let handle = &runtime.handle().clone();
 
         let mut agent = AgentController::with_runtime("Test", runtime);
-        
-                        
+
         handle.block_on(async move {
             let chan = agent
                 .add_feature(WebFeature::new(WebConfiguration {
                     bind_address: "127.0.0.1".parse().unwrap(),
-                    port: 3030 ,                 
-                    tls: None  
+                    port: 3030,
+                    tls: None,
                 }))
                 .start()
                 .await;
-            let signal = agent.signal.clone();
+            let signal = agent.signal.as_ref().unwrap().clone();
 
             handle.spawn(async move {
-                    let time = tokio::time::interval(Duration::from_millis(10000));
-                    signal.send(());
+                let _time = tokio::time::interval(Duration::from_millis(10000));
+                signal.send(()).unwrap();
             });
-            chan                
-                .recv()
-                .unwrap();
+            chan.recv().unwrap();
         })
     }
 }

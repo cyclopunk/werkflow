@@ -1,15 +1,25 @@
+use std::{sync::Arc};
+use tokio::sync::RwLock;
 use warp::Filter;
-use werkflow_scripting::Script;
-use std::convert::Infallible;
-
-use crate::{AgentController, handlers};
+use werkflow_scripting::{state::HostState, Script};
+use handlebars::{Handlebars};
+use crate::{handlers, AgentController};
 
 fn with_agent(
     agent: AgentController,
 ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || agent.clone())
 }
-
+fn with_state(
+    state: Arc<RwLock<HostState>>,
+) -> impl Filter<Extract = (Arc<RwLock<HostState>>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || state.clone())
+}
+fn with_templates(
+    state: Arc<Handlebars>,
+) -> impl Filter<Extract = (Arc<Handlebars>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || state.clone())
+}
 pub fn metrics() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("metrics")
         .and(warp::get())
@@ -61,3 +71,18 @@ pub fn list_jobs(
         .and(with_agent(agent))
         .and_then(handlers::list_jobs)
 }
+
+pub fn templates<'a>(
+    _agent: AgentController,
+    state: Arc<RwLock<HostState>>,
+    hb: Arc<Handlebars<'a>>
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone + 'a {
+    warp::path!("content" / String)
+        .and(warp::any())
+        .and(warp::body::stream())
+        .and(with_state(state))
+        .and(with_templates(hb))
+        .and_then(handlers::process_template)
+}
+
+

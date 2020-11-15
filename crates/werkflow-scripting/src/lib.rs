@@ -2,15 +2,20 @@ use log::{debug, info};
 use rand::prelude::*;
 use rhai::Scope;
 use serde_json::Value;
-use std::fmt;
+use state::HostState;
+use std::{collections::HashMap, fmt};
 
 pub use rhai::serde::*;
 
 pub use rhai::{
-    Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn, RegisterResultFn, Array
+    Array, Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn,
+    RegisterResultFn,
 };
 
 use serde::{Deserialize, Serialize};
+
+mod functions;
+pub mod state;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct ScriptIdentifier {
@@ -72,7 +77,11 @@ impl fmt::Display for ScriptHostError {
 // Implement std::fmt::Debug for AppError
 impl fmt::Debug for ScriptHostError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{ file: {}, line: {} error: {} }}", self.file, self.line,self.error_text) // programmer-facing output
+        write!(
+            f,
+            "{{ file: {}, line: {} error: {} }}",
+            self.file, self.line, self.error_text
+        ) // programmer-facing output
     }
 }
 
@@ -91,16 +100,32 @@ impl ScriptResult {
         serde_json::from_value::<T>(self.underlying.clone()).map_err(|_err| ScriptHostError {
             error_text: format!("Could not deserialize {} into struct", bare_str).into(),
             ..Default::default()
-        })       
+        })
     }
 }
 
-impl<'a> ScriptHost<'a> {
-    pub fn new() -> ScriptHost<'a> {
+
+pub trait ScriptHostPlugin {
+    fn init(&self, host: &mut ScriptHost);
+}
+
+
+impl Default for ScriptHost<'_> {
+    fn default() -> Self { 
         ScriptHost {
-            scope: Scope::new(),
             engine: Engine::new(),
-        }
+            scope: Scope::new()
+        } 
+    }
+}
+impl <'a> ScriptHost <'a> {
+    pub fn with_default_plugins() -> ScriptHost<'a>  {
+        let mut host = ScriptHost::default();
+        
+        host.add_plugin(HostState::new())
+            .add_plugin(functions::rand::Plugin);
+
+        host
     }
 
     pub fn with_engine<T>(&mut self, func: T)
@@ -110,34 +135,39 @@ impl<'a> ScriptHost<'a> {
         func(&mut self.engine);
     }
 
-    pub fn register_type<T: Sync + Send + Clone + 'static>(&'a mut self) {
-        self.engine.register_type::<T>();
+    pub fn add_plugin<S: ScriptHostPlugin>(&mut self, plugin : S) -> &mut ScriptHost <'a> {
+        plugin.init(self);
+
+        self
     }
 
-    pub async fn execute(&'a self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+    pub fn execute(&mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
         debug!("Start running script in Script Host:\n {:?}", script);
+        let mut scope = self.scope.clone();
 
-        let d = self
+        let result = self
             .engine
-            .eval::<Dynamic>(&script.body)
+            .eval_with_scope::<Dynamic>(&mut scope, &script.body)
             .map_err(|err| ScriptHostError {
                 error_text: err.to_string(),
                 line: err.position().position().unwrap_or_default(),
                 file: script.identifier.name.clone(),
             });
 
+        // update the scope after running the script
+
+        self.scope = scope;
+
         info!(
             "Done running script {} in Script Host",
             script.identifier.name
         );
 
-        match d {
+        match result {
             Ok(r) => {
-
                 let bare_str = r.as_str().unwrap_or_default();
 
                 let val: Value = if r.is::<String>() {
-                    
                     if let Ok(obj) = serde_json::from_str(bare_str) {
                         obj
                     } else {
@@ -146,15 +176,22 @@ impl<'a> ScriptHost<'a> {
                     }
                 } else {
                     from_dynamic::<Value>(&r).map_err(|_err| ScriptHostError {
-                        error_text: format!("Could not deserialize {} into struct", bare_str).into(),
+                        error_text: format!("Could not deserialize {} into struct", bare_str)
+                            .into(),
                         ..Default::default()
                     })?
                 };
-                Ok(ScriptResult { is_error: false, underlying: serde_json::to_value(val).unwrap() })
-            },
+                Ok(ScriptResult {
+                    is_error: false,
+                    underlying: serde_json::to_value(val).unwrap(),
+                })
+            }
             Err(err) => {
                 println!("Error running script {:?}", err);
-                Ok(ScriptResult { is_error: true, underlying: serde_json::to_value(err.to_string()).unwrap() })
+                Ok(ScriptResult {
+                    is_error: true,
+                    underlying: serde_json::to_value(err.to_string()).unwrap(),
+                })
             }
         }
     }
@@ -192,7 +229,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host() {
         init();
-        let sh = ScriptHost::new();
+        let mut sh = ScriptHost::with_default_plugins();
         let script = r#"
         print ("Hello" + " World");
         "test"
@@ -200,7 +237,6 @@ mod tests {
 
         let result = sh
             .execute(Script::with_name("test script", &script))
-            .await
             .unwrap();
 
         assert_eq!("test", result.to::<String>().unwrap_or_default());
@@ -208,7 +244,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host_adv() {
         init();
-        let sh = ScriptHost::new();
+        let mut sh = ScriptHost::with_default_plugins();
         let script = r#"
         print ("Advanced Test");
         #{
@@ -218,12 +254,11 @@ mod tests {
 
         let result = sh
             .execute(Script::with_name("test script", &script))
-            .await
             .unwrap();
 
         assert_eq!(
             User { id: 42 },
-            result.to::<User>().unwrap_or(User { id: 0 })
+            result.to::<User>().expect("to convert to a user")
         );
     }
 }

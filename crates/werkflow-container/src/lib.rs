@@ -1,7 +1,7 @@
-use bollard::models::{HostConfig, PortBinding, PortMap};
 use anyhow::Result;
 use bollard::container::{Config, CreateContainerOptions, StartContainerOptions};
 use bollard::image::CreateImageOptions;
+use bollard::models::{HostConfig, PortBinding, PortMap};
 use bollard::{ClientVersion, Docker};
 use std::{collections::HashMap, path::Path};
 
@@ -44,7 +44,8 @@ impl ContainerService {
     }
     pub async fn default_connect() -> ContainerService {
         ContainerService {
-            docker: Docker::connect_with_named_pipe_defaults().expect("could not connect to docker")
+            docker: Docker::connect_with_named_pipe_defaults()
+                .expect("could not connect to docker"),
         }
     }
     pub async fn start_container(
@@ -52,29 +53,27 @@ impl ContainerService {
         container_name: String,
         image_name: String,
         env: &[String],
-        port_forward: HashMap<String, String> 
+        port_forward: HashMap<String, String>,
     ) -> Result<()> {
-        
-        let mut port_map : PortMap = HashMap::new();
+        let mut port_map: PortMap = HashMap::new();
 
-        for (k,v) in port_forward {
+        for (k, v) in port_forward {
             let mut bindings: Vec<PortBinding> = Vec::new();
 
             bindings.push(PortBinding {
                 host_ip: Some("127.0.0.1".into()),
-                host_port: Some(v)
+                host_port: Some(v),
             });
 
             port_map.insert(k, Some(bindings));
         }
+        let mut host_config = HostConfig::default();
+        host_config.port_bindings = Some(port_map);
 
         let config = Config {
             image: Some(image_name.clone()),
             env: Some(env.to_vec()),
-            host_config: Some(HostConfig {
-                port_bindings: Some(port_map),
-                ..Default::default()
-            }),
+            host_config: Some(host_config),
             ..Default::default()
         };
 

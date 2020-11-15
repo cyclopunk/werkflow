@@ -1,8 +1,10 @@
-use crate::cfg::AgentConfiguration;
+use werkflow_scripting::ScriptHostPlugin;
+use crate::{cfg::AgentConfiguration, plugins};
 use crate::AsyncRunner;
+use itertools::Itertools;
 use werkflow_config::read_config;
 use werkflow_config::ConfigSource;
-use werkflow_core::sec::ZoneRecord;
+use werkflow_core::sec::{Authentication, DnsControllerClient, ZoneRecord};
 use werkflow_core::{
     sec::{DnsProvider, Zone},
     HttpAction,
@@ -12,7 +14,7 @@ use werkflow_scripting::{Array, ImmutableString};
 use log::{error, trace};
 use rand::Rng;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer};
-use std::collections::HashMap;
+use std::{collections::HashMap, process::Command};
 use werkflow_scripting::Map;
 
 use crate::{comm::AgentEvent, AgentController, WorkloadData};
@@ -43,7 +45,7 @@ impl Clone for WorkloadHandle {
             status: self.status.clone(),
             join_handle: None,
             result: None,
-            workload: self.workload.clone()
+            workload: self.workload.clone(),
         };
     }
 }
@@ -51,72 +53,6 @@ impl Clone for WorkloadHandle {
 impl WorkloadHandle {
     pub fn setup_communication() {}
     pub fn get_status() {}
-}
-
-mod http {
-    use crate::threads::AsyncRunner;
-
-    use super::*;
-
-    pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {
-        println!("Getting {}", url);
-        let l_url = url.clone();
-
-        Ok(AsyncRunner::block_on(async_get(l_url.clone())))
-    }
-
-    pub fn post(url: &'static str, body: Map) -> Result<Dynamic, Box<EvalAltResult>> {
-        let l_url = url.clone();
-
-        Ok(AsyncRunner::block_on(async_post(
-            l_url.clone(),
-            SerMap { underlying: body },
-        )))
-    }
-
-    pub async fn async_get(url: &str) -> Dynamic {
-        let response = reqwest::Client::new()
-            .get(url)
-            .header("User-Agent", "werkflow-agent/0.1.0")
-            .send()
-            .await
-            .map_err(|err| anyhow!("Error contacting url {}, {}", url, err))
-            .unwrap()
-            .text()
-            .await
-            .map_err(|err| anyhow!("Could not make the result text, {}", err))
-            .unwrap();
-
-        to_dynamic(response).unwrap()
-    }
-
-    /// Convert a dynamic to a JSON string, use it as the body of a post request, and then respond with the
-    /// same type
-    /// This allows scripts to use maps of any time to call this:
-    /// let user = post(url, #{ fieldOnT: someSetting })
-    pub async fn async_post(url: &str, body: SerMap) -> Dynamic {
-        let body = serde_json::to_string(&body)
-            .map_err(|_err| anyhow!("Error contacting url {}", url))
-            .unwrap();
-
-        let response = reqwest::Client::new()
-            .post(url)
-            .body(body)
-            .header("User-Agent", "werkflow-agent/0.1.0")
-            .send()
-            .await
-            .map_err(|_err| anyhow!("Error contacting url {}", url))
-            .unwrap()
-            .text()
-            .await
-            .map_err(|_err| anyhow!("Could not make the result text"))
-            .unwrap();
-
-        to_dynamic(response)
-            .map_err(|_err| anyhow!("Could not make result from script dynamic"))
-            .unwrap()
-        //Ok(to_dynamic(response)?)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -157,7 +93,7 @@ impl Into<WorkloadData> for ScriptResult {
 }
 
 pub struct SerMap {
-    underlying: Map,
+    pub(crate) underlying: Map,
 }
 
 enum SerializableField {
@@ -264,6 +200,21 @@ pub struct CommandHost {
     config: AgentConfiguration,
 }
 
+struct CommandHostPlugin;
+
+impl ScriptHostPlugin for CommandHostPlugin {
+    fn init(&self, host: &mut ScriptHost) { 
+       host.engine.register_type::<CommandHost>()
+       .register_fn("configure", CommandHost::new_ch)
+       .register_fn("configure_web", CommandHost::new_ch_web)
+       .register_fn("add_record", CommandHost::add_a_record)
+       .register_fn("start_container", CommandHost::start_container)
+       .register_fn("create_container", CommandHost::create_container)
+       .register_fn("ip", CommandHost::get_ip);
+    }
+}
+
+
 impl CommandHost {
     fn new_ch(filename: ImmutableString) -> CommandHost {
         let config =
@@ -282,57 +233,115 @@ impl CommandHost {
             config: config.unwrap(),
         }
     }
-    fn create_container(&mut self, 
-        name : ImmutableString, 
-        image : ImmutableString, 
-        env : Array) {
-        
-        let s =  AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
-        let environment : Vec<String> = env.iter().map(|s| s.to_string()).collect::<Vec<String>>().clone();
+    fn create_container(&mut self, name: ImmutableString, image: ImmutableString, env: Array) {
+        let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+        let environment: Vec<String> = env
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .clone();
 
-        AsyncRunner::block_on(async move { 
-            s.create_and_start_container(name.to_string(),image.to_string(), environment.as_slice())
-                .await
-                .unwrap();
+        AsyncRunner::block_on(async move {
+            s.create_and_start_container(
+                name.to_string(),
+                image.to_string(),
+                environment.as_slice(),
+            )
+            .await
+            .unwrap();
         });
     }
-    
+
+    /// Provides a way to guess external ip on windows and linux.
+
+    fn get_ip() -> String {
+        let main_interface = if cfg!(target_family = "windows") {
+            let cmd = Command::new("C:\\windows\\System32\\route.exe")
+                .args(&["print"])
+                .output()
+                .unwrap();
+
+            let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();
+
+            for line in table.split("\n") {
+                if line.contains(" 0.0.0.0") {
+                    let (_gw, _nmask, _next_hop, interface) =
+                        line.split_whitespace().map(|s| s).next_tuple().unwrap();
+
+                    return interface.to_string();
+                }
+            }
+            "unknown"
+        } else {
+            let cmd = Command::new("route -n").output().unwrap();
+            let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();
+
+            for line in table.split("\n") {
+                if line.starts_with("0.0.0.0") {
+                    return line.split_whitespace().last().unwrap_or("eth0").to_string();
+                }
+            }
+            "eth0"
+        };
+        for iface in get_if_addrs::get_if_addrs().unwrap() {
+            println!("{:?}", iface);
+            if iface.is_loopback() {
+                continue;
+            }
+
+            if iface.ip().to_string() == main_interface || iface.name == main_interface {
+                return iface.ip().to_string();
+            }
+        }
+
+        "".into()
+    }
+
     /// Start a container from an image name.
     /// Env is a list of strings VAR=WHATEVER
     /// port_forward is a map of strings such that the rhai map literal #{ "3000/tcp": "3000"  } would map local port 3000 to 3000/tcp
-    fn start_container(&mut self, 
-        name : ImmutableString, 
-        image : ImmutableString, 
-        env : Array,
-        ports: Map) {
-        
-        let s =  AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+    fn start_container(
+        &mut self,
+        name: ImmutableString,
+        image: ImmutableString,
+        env: Array,
+        ports: Map,
+    ) {
+        let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
         // convert envs and forwards.
-        let environment : Vec<String> = env.iter().map(|s| s.to_string()).collect::<Vec<String>>().clone();
-        let mut forwards : HashMap<String, String> = HashMap::new();
-        
+        let environment: Vec<String> = env
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .clone();
+        let mut forwards: HashMap<String, String> = HashMap::new();
+
         ports.iter().for_each(|(k, v)| {
             forwards.insert(k.to_string(), v.to_string());
         });
 
-        AsyncRunner::block_on(async move { 
-            s.start_container(name.to_string(),image.to_string(), environment.as_slice(), forwards.clone())
-                .await
-                .unwrap();
+        AsyncRunner::block_on(async move {
+            s.start_container(
+                name.to_string(),
+                image.to_string(),
+                environment.as_slice(),
+                forwards.clone(),
+            )
+            .await
+            .unwrap();
         });
     }
     // add a DNS A record
-    fn add_a_record(
-        &mut self,
-        zone: String,
-        host: String,
-        target: String
-    ) {
+    fn add_a_record(&mut self, zone: String, host: String, target: String) {
         if let Some(dns_cfg) = &self.config.dns {
-            let provider = DnsProvider::new(&dns_cfg.api_key).unwrap();
-
-            let result =
-                AsyncRunner::block_on(async move { provider.add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target)).await });
+            let provider = DnsProvider::Cloudflare.new(Authentication::ApiToken(dns_cfg.api_key.to_string()));
+            let result = AsyncRunner::block_on(async move {
+                
+                
+                provider
+                    .add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target))
+                    .await
+            });
 
             match result {
                 Ok(_) => print!("Zone added"),
@@ -361,30 +370,20 @@ impl Workload {
     }
 
     pub async fn run(&self) -> Result<String> {
-        let mut script_host = ScriptHost::new();
+        let mut script_host = ScriptHost::with_default_plugins();
 
         let _ = self
             .agent_handle
             .send(AgentEvent::WorkStarted(self.clone()))
             .unwrap();
 
-        // register command host functions, this will likely be refactored into different
-        // modules e.g. Web, DNS, Container, Cloud
-        script_host.with_engine(|e| {
-            e.register_type::<CommandHost>();
-            e.register_fn("config", CommandHost::new_ch);
-            e.register_fn("config_web", CommandHost::new_ch_web);
-            e.register_fn("add_record", CommandHost::add_a_record);
-            e.register_fn("start_container", CommandHost::start_container);
-            e.register_fn("create_container", CommandHost::create_container);
-            e.register_fn("my_ip", machine_ip::get);
-            e.register_result_fn("get", http::get);
-            e.register_result_fn("post", http::post);
-        });
+        script_host
+            .add_plugin(CommandHostPlugin)
+            .add_plugin(plugins::http::Plugin);
 
         trace!("Executing script");
 
-        match script_host.execute(self.script.clone()).await {
+        match script_host.execute(self.script.clone()) {
             Ok(result) => {
                 println!("Done executing script {:?}", result);
                 Ok(result.underlying.to_string())
@@ -401,8 +400,7 @@ impl Workload {
 mod test {
     use super::*;
     use serde::*;
-    
-    use tokio::runtime::Runtime;
+
     use werkflow_scripting::Engine;
 
     #[derive(Serialize, Deserialize, PartialEq, Default)]
@@ -443,15 +441,15 @@ mod test {
     ///     let r = Runtime::new().unwrap();
     ///     let handle = r.handle().clone();
     ///     let agent = AgentController::with_runtime("test-agent".into(), r);
-    /// 
+    ///
     ///     let script = Script::new(
     ///     r#"                
-    ///     let ch = config("../../config/werkflow.toml");
-    /// 
-    ///              ch.add_record("autobuild.cloud", "test-script", "127.0.0.1");
-    /// 
-    ///              ch.start_container("test-g", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
-    ///           "#,
+    ///            let ch = configure("../../config/werkflow.toml");
+    ///
+    ///            ch.add_record("autobuild.cloud", "test-script", ip());
+    ///
+    ///            ch.start_container("test-grafana", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
+    ///      "#,
     ///        );
     ///        let workload = Workload::with_script(agent.clone(), script);
     ///  
@@ -467,7 +465,7 @@ mod test {
             r#"                
                 let user = post("https://jsonplaceholder.typicode.com/users", #{ name: "Test".to_string() } );
                 print("user: " + user);
-                print("my ip" + my_ip);
+                print("my ip" + ip());
                 user
             "#,
         );
@@ -488,5 +486,4 @@ mod test {
         assert_eq!(1, user2.id);
         assert_eq!(user2.name, "Leanne Graham".to_string());
     }
-
 }

@@ -12,10 +12,10 @@ lazy_static! {
         IntCounter::new("incoming_requests", "Incoming Requests").expect("metric can be created");
     pub static ref WORKLOAD_START: IntCounter =
         IntCounter::new("workload_starts", "Started Workloads").expect("metric can be created");
-        pub static ref WORKLOAD_COMPLETE: IntCounter =
-            IntCounter::new("workload_complete", "Complete Workloads").expect("metric can be created");
+    pub static ref WORKLOAD_COMPLETE: IntCounter =
+        IntCounter::new("workload_complete", "Complete Workloads").expect("metric can be created");
     pub static ref WORKLOAD_TOTAL_TIME: IntCounter =
-            IntCounter::new("workload_time", "Total Workload Time").expect("metric can be created");
+        IntCounter::new("workload_time", "Total Workload Time").expect("metric can be created");
     pub static ref WORKLOAD_ERROR: IntCounter =
         IntCounter::new("workload_error", "Workload Errors").expect("metric can be created");
     pub static ref CONNECTED_CLIENTS: IntGauge =
@@ -36,7 +36,7 @@ pub fn register_custom_metrics() {
     REGISTRY
         .register(Box::new(INCOMING_REQUESTS.clone()))
         .expect("collector can be registered");
-        REGISTRY
+    REGISTRY
         .register(Box::new(WORKLOAD_COMPLETE.clone()))
         .expect("collector can be registered");
     REGISTRY

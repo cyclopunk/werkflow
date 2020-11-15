@@ -16,13 +16,19 @@ pub mod blocking {
 
     use super::*;
 
-    pub fn from_file<T>(source: &Path) -> Result<T, anyhow::Error>  where
-        for<'de> T: Deserialize<'de> {
+    pub fn from_file<T>(source: &Path) -> Result<T, anyhow::Error>
+    where
+        for<'de> T: Deserialize<'de>,
+    {
         let mut config = Config::new();
 
-        config
-            .merge(File::from(source))
-            .map_err(|err| anyhow!("Could get config from path ({:?}) provided. {}", source, err))?;
+        config.merge(File::from(source)).map_err(|err| {
+            anyhow!(
+                "Could get config from path ({:?}) provided. {}",
+                source,
+                err
+            )
+        })?;
 
         config.try_into::<T>().map_err(|err| {
             anyhow!(

@@ -25,6 +25,7 @@ reqwest = "0.10.8"
 anyhow = "1.0.33"
 clap = "2.33.3"
 
+rand = "0.7.3"
 [workspace]
 
 members = [

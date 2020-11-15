@@ -1,10 +1,18 @@
-use log::{debug, info};
-use werkflow_agents::{AgentCommand, AgentController, work::{Workload, WorkloadStatus}};
-use warp::Rejection;
-use warp::Reply;
-use werkflow_scripting::Script;
+
 use anyhow::{anyhow, Result};
+use handlebars::Handlebars;
+use log::{debug, info};
 use std::convert::Infallible;
+use std::{sync::Arc};
+use tokio::stream::StreamExt;
+use tokio::sync::RwLock;
+use warp::Reply;
+use warp::{Rejection, Stream, http::Response};
+use werkflow_agents::{
+    work::{Workload, WorkloadStatus},
+    AgentCommand, AgentController,
+};
+use werkflow_scripting::{state::HostState, Script, ScriptHost};
 
 use crate::model;
 
@@ -42,9 +50,7 @@ pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
     Ok(res)
 }
 
-pub async fn print_status<'a>(
-    controller: AgentController,
-) -> Result<impl warp::Reply, Infallible> {
+pub async fn print_status<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
     let agent = controller.agent.read();
     Ok(format!(
         "{} The current status is: {:?}",
@@ -62,7 +68,7 @@ pub async fn start_job<'a>(
     let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
     agent.runtime.spawn(async move {
-        let id = wl_handle.read().await.id;    
+        let id = wl_handle.read().await.id;
         let mut handle = wl_handle.write().await;
 
         if handle.status == WorkloadStatus::None {
@@ -80,7 +86,7 @@ pub async fn start_job<'a>(
                 Ok(result) => {
                     info!("Job {} completed. Result: {}", id, result);
                     handle.result = Some(result);
-                    
+
                     handle.status = WorkloadStatus::Complete;
                 }
                 Err(err) => {
@@ -89,7 +95,6 @@ pub async fn start_job<'a>(
                     handle.status = WorkloadStatus::Error(err_string);
                 }
             }
-            
         }
 
         drop(handle);
@@ -98,9 +103,7 @@ pub async fn start_job<'a>(
     Ok(format!("Started job"))
 }
 
-pub async fn list_jobs<'a>(
-    controller: AgentController,
-) -> Result<impl warp::Reply, Infallible> {
+pub async fn list_jobs<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
     info!("Read lock on agent");
     let work = controller.agent.read().work_handles.clone();
     info!("Got Read lock on agent");
@@ -135,10 +138,54 @@ pub async fn stop_agent(controller: AgentController) -> Result<impl warp::Reply,
 }
 
 pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-    let _ = controller
-        .agent
-        .write()
-        .command(AgentCommand::Start);
+    let _ = controller.agent.write().command(AgentCommand::Start);
 
     Ok(format!("The agent has been started."))
+}
+
+pub async fn process_template<S, B>(
+    template_name: String,
+    script: S,
+    state: Arc<RwLock<HostState>>,
+    handlebars: Arc<handlebars::Handlebars<'_>>
+) -> Result<impl warp::Reply, Infallible>
+where
+    S: Stream<Item = Result<B, warp::Error>>,
+    S: StreamExt,
+    B: warp::Buf,
+{
+
+    let mut pinned_stream = Box::pin(script);
+
+    let mut script_txt = String::new();
+
+    while let Some(item) = pinned_stream.next().await {
+        let mut data = item.unwrap();
+        script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
+    }
+
+    let mut script_host = ScriptHost::with_default_plugins();
+
+    let host_state = state
+        .read()
+        .await
+        .clone();
+
+    script_host.scope.push("state", host_state);
+
+    let result = script_host
+        .execute(Script::with_name(&template_name[..], &script_txt))
+        .unwrap();
+
+    let html = handlebars
+        .render(&template_name, &result.underlying)
+        .unwrap();
+
+    let mut state = state.write().await;
+
+    *state = script_host.scope.get_value("state").unwrap();
+
+    Ok(Response::builder()
+        .header("Content-Type", "text/html")
+        .body(ammonia::clean(&html)))
 }
