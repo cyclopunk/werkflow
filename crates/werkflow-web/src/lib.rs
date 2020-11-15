@@ -1,11 +1,11 @@
-use std::convert::Infallible;
+
 use std::{net::Ipv4Addr, sync::Arc};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
 use werkflow_scripting::HostState;
 
-use anyhow::anyhow;
+
 
 use log::info;
 use tokio::sync::oneshot::{self, Sender};
@@ -14,7 +14,7 @@ use tokio::sync::oneshot::{self, Sender};
 
 use warp::Filter;
 
-use werkflow_agents::{comm::AgentEvent, AgentController, Feature, FeatureConfig, FeatureHandle};
+use werkflow_agents::{comm::AgentEvent, AgentController, Feature, FeatureHandle};
 
 use self::filters::agent_status;
 
@@ -201,11 +201,11 @@ mod test {
                 }))
                 .start()
                 .await;
-            let signal = agent.signal.clone();
+            let signal = agent.signal.as_ref().unwrap().clone();
 
             handle.spawn(async move {
-                let time = tokio::time::interval(Duration::from_millis(10000));
-                signal.send(());
+                let _time = tokio::time::interval(Duration::from_millis(10000));
+                signal.send(()).unwrap();
             });
             chan.recv().unwrap();
         })

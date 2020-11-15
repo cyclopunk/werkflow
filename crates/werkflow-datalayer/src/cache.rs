@@ -1,4 +1,4 @@
-use anyhow::*;
+
 use redis::{Connection, RedisResult};
 
 fn connect(connection_string: &str) -> RedisResult<Connection> {

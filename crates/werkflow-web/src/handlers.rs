@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
 use log::{debug, info};
 use std::convert::Infallible;
-use std::{collections::HashMap, sync::Arc};
+use std::{sync::Arc};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
 use warp::Reply;

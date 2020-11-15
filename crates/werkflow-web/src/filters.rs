@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::{sync::Arc};
 use tokio::sync::RwLock;
 use warp::Filter;
 use werkflow_scripting::{HostState, Script};
@@ -68,7 +68,7 @@ pub fn list_jobs(
 }
 
 pub fn templates(
-    agent: AgentController,
+    _agent: AgentController,
     state: Arc<RwLock<HostState>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("content" / String)

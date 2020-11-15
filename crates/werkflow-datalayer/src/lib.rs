@@ -1,7 +1,7 @@
 #![feature(type_alias_impl_trait)]
 
 use cdrs::frame::IntoBytes;
-use cdrs::{cluster::TcpConnectionPool, query_values};
+use cdrs::{cluster::TcpConnectionPool};
 use database::DataSourceConfig;
 use werkflow_config::{read_config, ConfigSource};
 
@@ -156,7 +156,7 @@ mod tests {
 
     use super::*;
 
-    use cdrs::frame::IntoBytes;
+    use cdrs::{frame::IntoBytes, query_values};
     use cdrs::types::from_cdrs::FromCDRSByName;
     #[derive(Clone, Debug, TryFromRow, TryFromUDT, IntoCDRSValue, PartialEq, Default)]
     struct User {
