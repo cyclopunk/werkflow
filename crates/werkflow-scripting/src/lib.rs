@@ -55,27 +55,27 @@ impl Script {
 }
 /// Wrapper object for the underlying scripting engine.
 
-pub struct ScriptHost<'a> {
+pub struct ScriptEngine<'a> {
     pub engine: Engine,
     pub scope: Scope<'a>,
 }
 
 #[derive(PartialEq, Clone, Serialize, Deserialize, Default)]
-pub struct ScriptHostError {
+pub struct ScriptEngineError {
     file: String,
     line: usize,
     error_text: String,
 }
 
 // Implement std::fmt::Display for AppError
-impl fmt::Display for ScriptHostError {
+impl fmt::Display for ScriptEngineError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "An Error Occurred, Please Try Again!") // user-facing output
     }
 }
 
 // Implement std::fmt::Debug for AppError
-impl fmt::Debug for ScriptHostError {
+impl fmt::Debug for ScriptEngineError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -92,35 +92,34 @@ pub struct ScriptResult {
 }
 
 impl ScriptResult {
-    pub fn to<T>(&self) -> Result<T, ScriptHostError>
+    pub fn to<T>(&self) -> Result<T, ScriptEngineError>
     where
         for<'de> T: Deserialize<'de>,
     {
         let bare_str = self.underlying.as_str().unwrap_or_default();
-        serde_json::from_value::<T>(self.underlying.clone()).map_err(|_err| ScriptHostError {
+        serde_json::from_value::<T>(self.underlying.clone()).map_err(|_err| ScriptEngineError {
             error_text: format!("Could not deserialize {} into struct", bare_str).into(),
             ..Default::default()
         })
     }
 }
 
-
-pub trait ScriptHostPlugin {
-    fn init(&self, host: &mut ScriptHost);
+pub trait ScriptEnginePlugin {
+    fn init(&self, host: &mut ScriptEngine);
 }
 
 
-impl Default for ScriptHost<'_> {
+impl Default for ScriptEngine<'_> {
     fn default() -> Self { 
-        ScriptHost {
+        ScriptEngine {
             engine: Engine::new(),
             scope: Scope::new()
         } 
     }
 }
-impl <'a> ScriptHost <'a> {
-    pub fn with_default_plugins() -> ScriptHost<'a>  {
-        let mut host = ScriptHost::default();
+impl <'a> ScriptEngine <'a> {
+    pub fn with_default_plugins() -> ScriptEngine<'a>  {
+        let mut host = ScriptEngine::default();
         
         host.add_plugin(HostState::new())
             .add_plugin(functions::rand::Plugin);
@@ -135,20 +134,20 @@ impl <'a> ScriptHost <'a> {
         func(&mut self.engine);
     }
 
-    pub fn add_plugin<S: ScriptHostPlugin>(&mut self, plugin : S) -> &mut ScriptHost <'a> {
+    pub fn add_plugin<S: ScriptEnginePlugin>(&mut self, plugin : S) -> &mut ScriptEngine <'a> {
         plugin.init(self);
 
         self
     }
 
-    pub fn execute(&mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+    pub fn execute(&mut self, script: Script) -> Result<ScriptResult, ScriptEngineError> {
         debug!("Start running script in Script Host:\n {:?}", script);
         let mut scope = self.scope.clone();
 
         let result = self
             .engine
             .eval_with_scope::<Dynamic>(&mut scope, &script.body)
-            .map_err(|err| ScriptHostError {
+            .map_err(|err| ScriptEngineError {
                 error_text: err.to_string(),
                 line: err.position().position().unwrap_or_default(),
                 file: script.identifier.name.clone(),
@@ -175,7 +174,7 @@ impl <'a> ScriptHost <'a> {
                         serde_json::from_str(&format!("\"{}\"", bare_str)).unwrap()
                     }
                 } else {
-                    from_dynamic::<Value>(&r).map_err(|_err| ScriptHostError {
+                    from_dynamic::<Value>(&r).map_err(|_err| ScriptEngineError {
                         error_text: format!("Could not deserialize {} into struct", bare_str)
                             .into(),
                         ..Default::default()
@@ -229,7 +228,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host() {
         init();
-        let mut sh = ScriptHost::with_default_plugins();
+        let mut sh = ScriptEngine::with_default_plugins();
         let script = r#"
         print ("Hello" + " World");
         "test"
@@ -244,7 +243,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host_adv() {
         init();
-        let mut sh = ScriptHost::with_default_plugins();
+        let mut sh = ScriptEngine::with_default_plugins();
         let script = r#"
         print ("Advanced Test");
         #{

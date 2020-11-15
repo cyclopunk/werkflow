@@ -12,7 +12,7 @@ use werkflow_agents::{
     work::{Workload, WorkloadStatus},
     AgentCommand, AgentController,
 };
-use werkflow_scripting::{state::HostState, Script, ScriptHost};
+use werkflow_scripting::{state::HostState, Script, ScriptEngine};
 
 use crate::model;
 
@@ -155,6 +155,8 @@ where
     B: warp::Buf,
 {
 
+    // Get the script from the input stream
+    
     let mut pinned_stream = Box::pin(script);
 
     let mut script_txt = String::new();
@@ -164,7 +166,7 @@ where
         script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
     }
 
-    let mut script_host = ScriptHost::with_default_plugins();
+    let mut script_host = ScriptEngine::with_default_plugins();
 
     let host_state = state
         .read()

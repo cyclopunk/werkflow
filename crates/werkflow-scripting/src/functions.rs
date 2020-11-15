@@ -1,16 +1,16 @@
 pub(crate) mod rand {
     use std::iter;
 
-    use crate::ScriptHost;
-use crate::ScriptHostPlugin;
+    use crate::ScriptEngine;
+use crate::ScriptEnginePlugin;
 use rhai::{Engine, RegisterFn};
     use rand::Rng;
     use rand::distributions::Alphanumeric;
 
     pub struct Plugin;
 
-    impl ScriptHostPlugin for Plugin {
-        fn init(&self, host : &mut ScriptHost){
+    impl ScriptEnginePlugin for Plugin {
+        fn init(&self, host : &mut ScriptEngine){
             host.engine
                 .register_fn("rand_float", rand_u64)
                 .register_fn("rand_float", rand_f64)

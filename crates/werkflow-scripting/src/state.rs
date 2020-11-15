@@ -1,5 +1,5 @@
 
-use crate::{ScriptHost, ScriptHostPlugin};
+use crate::{ScriptEngine, ScriptEnginePlugin};
 use crate::HashMap;
 
 /// State for the script host
@@ -9,8 +9,8 @@ pub struct HostState {
 }
 
 
-impl ScriptHostPlugin for HostState {
-    fn init(&self, host : &mut ScriptHost){
+impl ScriptEnginePlugin for HostState {
+    fn init(&self, host : &mut ScriptEngine){
         host.engine.register_type::<HostState>()
             .register_indexer_get(HostState::get_field)
             .register_indexer_set(HostState::set_field)
