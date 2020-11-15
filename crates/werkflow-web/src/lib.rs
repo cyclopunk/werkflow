@@ -1,4 +1,6 @@
-use std::net::Ipv4Addr;
+use tokio::sync::RwLock;
+use werkflow_scripting::HostState;
+use std::{sync::Arc, net::Ipv4Addr};
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
 use std::convert::Infallible;
@@ -95,6 +97,7 @@ impl Feature for WebFeature {
                 
                 info!("Starting the web service");
                 
+                let state = Arc::new(RwLock::new(HostState::new()));
                 let controller = self.agent.clone().unwrap();
                 let config = self.config.clone();
                 let (tx, rx) = oneshot::channel();
@@ -120,7 +123,7 @@ impl Feature for WebFeature {
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
                     .or(filters::list_jobs(controller.clone()))
-                    .or(filters::templates(controller.clone()))
+                    .or(filters::templates(controller.clone(), state.clone()))
                     .or(filters::metrics())
                     .with(log);
 

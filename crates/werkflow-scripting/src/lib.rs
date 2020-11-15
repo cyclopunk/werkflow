@@ -95,34 +95,83 @@ impl ScriptResult {
     }
 }
 
+/// State for the script host
 #[derive(Clone, Debug)]
-struct HostState {
-    fields: HashMap<String, Dynamic>
+pub struct HostState {
+    fields: HashMap<String, String>
 }
 
 impl HostState {
-    fn new() -> Self {
+    pub fn new() -> Self {
         HostState {
             fields: HashMap::new()
         }
     }
-    fn get_field(&mut self, index: String) -> Dynamic {
-        let default = to_dynamic("").unwrap();
+    fn get_field(&mut self, index: String) -> String {
 
-        let dynamic_or_blank = self.fields.get(&index).unwrap_or(&default);
-
-        dynamic_or_blank.clone()
+        if let Some(field_value) = self.fields.get(&index) {
+            field_value.to_string()
+        } else {
+            "".to_string()
+        }
     }
-    fn set_field(&mut self, index: ImmutableString, value: Dynamic) {
-        self.fields.insert(index.to_string(), value);
+    fn set_field(&mut self, index: String, value: String) {
+        self.fields.insert(index, value);
+    }
+    fn get_field_int(&mut self, index: String) -> i64 {
+        if let Some(num) = self.fields.get(&index) {
+            num.parse().unwrap()
+        } else {
+            0_i64
+        }
+    }
+    fn set_field_int(&mut self, index: String, value: i64) {
+        self.fields.insert(index, value.to_string());
+    }
+    fn get_field_bool(&mut self, index: String) -> bool {
+        if let Some(b) = self.fields.get(&index) {
+            b.parse().unwrap()
+        } else {
+            false
+        }
+    }
+    fn set_field_bool(&mut self, index: String, value: bool) {
+        self.fields.insert(index, value.to_string());
+    }
+    fn get_field_float(&mut self, index: String) -> f64 {
+        if let Some(b) = self.fields.get(&index) {
+            b.parse().unwrap()
+        } else {
+            0_f64
+        }
+    }
+    fn set_field_float(&mut self, index: String, value: f64) {
+        self.fields.insert(index, value.to_string());
     }
 }
 impl<'a> ScriptHost<'a> {
     pub fn new() -> ScriptHost<'a> {
-        ScriptHost {
+        let mut host = ScriptHost {
             scope: Scope::new(),
             engine: Engine::new(),
-        }
+        };
+
+        // add a method to keep state within the host
+
+        host.engine
+            .register_type::<HostState>()
+            .register_indexer_get(HostState::get_field)
+            .register_indexer_set(HostState::set_field)
+            .register_indexer_get(HostState::get_field_int)
+            .register_indexer_set(HostState::set_field_int)
+            .register_indexer_get(HostState::get_field_bool)
+            .register_indexer_set(HostState::set_field_bool)
+            .register_indexer_get(HostState::get_field_float)
+            .register_indexer_set(HostState::set_field_float);
+
+        //host.scope.push("state", HostState::new());
+
+        host
     }
 
     pub fn with_engine<T>(&mut self, func: T)
@@ -132,32 +181,29 @@ impl<'a> ScriptHost<'a> {
         func(&mut self.engine);
     }
 
-    pub fn register_type<T: Sync + Send + Clone + 'static>(&'a mut self) {
-        self.engine.register_type::<T>();
-    }
-
-    pub async fn execute(&'a mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+    pub fn execute (&mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
         debug!("Start running script in Script Host:\n {:?}", script);
+        let mut scope = self.scope.clone();
 
-        let d = self
+        let result = self
             .engine
-            .register_type::<HostState>()
-            .register_fn("new_state", HostState::new)
-            .register_indexer_get(HostState::get_field)
-            .register_indexer_set(HostState::set_field)
-            .eval_with_scope::<Dynamic>(&mut self.scope.clone(), &script.body)
+            .eval_with_scope::<Dynamic>(&mut scope, &script.body)
             .map_err(|err| ScriptHostError {
                 error_text: err.to_string(),
                 line: err.position().position().unwrap_or_default(),
                 file: script.identifier.name.clone(),
             });
 
+        // update the scope after running the script
+
+        self.scope = scope;
+
         info!(
             "Done running script {} in Script Host",
             script.identifier.name
         );
 
-        match d {
+        match result {
             Ok(r) => {
 
                 let bare_str = r.as_str().unwrap_or_default();
@@ -226,7 +272,6 @@ mod tests {
 
         let result = sh
             .execute(Script::with_name("test script", &script))
-            .await
             .unwrap();
 
         assert_eq!("test", result.to::<String>().unwrap_or_default());
@@ -244,7 +289,6 @@ mod tests {
 
         let result = sh
             .execute(Script::with_name("test script", &script))
-            .await
             .unwrap();
 
         assert_eq!(

@@ -434,7 +434,7 @@ impl Workload {
 
         trace!("Executing script");
 
-        match script_host.execute(self.script.clone()).await {
+        match script_host.execute(self.script.clone()) {
             Ok(result) => {
                 println!("Done executing script {:?}", result);
                 Ok(result.underlying.to_string())

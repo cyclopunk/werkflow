@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use tokio::sync::RwLock;
+use std::{sync::Arc, collections::HashMap};
 use handlebars::Handlebars;
 use log::{debug, info};
 use tokio::stream::StreamExt;
 use werkflow_agents::{AgentCommand, AgentController, work::{Workload, WorkloadStatus}};
 use warp::{Rejection, Stream};
 use warp::Reply;
-use werkflow_scripting::{Script, ScriptHost};
+use werkflow_scripting::{HostState, Script, ScriptHost};
 use anyhow::{anyhow, Result};
 use std::convert::Infallible;
 
@@ -146,7 +147,7 @@ pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply
     Ok(format!("The agent has been started."))
 }
 
-pub async fn process_template<S,B>(template_name : String, script : S, state: HashMap<String, u64>) -> Result<impl warp::Reply, Infallible> 
+pub async fn process_template<S,B>(template_name : String, script : S, state: Arc<RwLock<HostState>>) -> Result<impl warp::Reply, Infallible> 
 where
     S: Stream<Item = Result<B, warp::Error>>,
     S: StreamExt,
@@ -169,12 +170,18 @@ where
     let data:HashMap<String,String> = HashMap::new();
     
     let mut script_host = ScriptHost::new();
+
+    let host_state = state.read().await.clone();
     
-    script_host.scope.push("state", state);
+    script_host.scope.push("state", host_state);
 
-    let result = script_host.execute(Script::with_name(&template_name[..], &script_txt)).await;
+    let result = script_host
+        .execute(Script::with_name(&template_name[..], &script_txt)).unwrap();
 
-    let html = handlebars.render(&template_name, &result.unwrap().underlying).unwrap();
+    let html = handlebars.render(&template_name, &result.underlying).unwrap();
+    let mut state = state.write().await;
+
+    *state = script_host.scope.get_value("state").unwrap();
     
     Ok(ammonia::clean(&html))
 }
