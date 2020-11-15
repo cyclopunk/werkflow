@@ -1,4 +1,4 @@
-use std::{any::Any, path::Path};
+use std::{path::Path};
 
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
@@ -26,7 +26,7 @@ pub trait ConfigDefinition {
         let map = serde_json::to_value(config).unwrap();
 
         serde_json::from_value(map)
-            .map_err(|err| anyhow!("Could not merge configs"))
+            .map_err(|_err| anyhow!("Could not merge configs"))
     }
 }
 

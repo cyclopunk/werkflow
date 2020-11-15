@@ -67,14 +67,13 @@ impl ContainerService {
 
             port_map.insert(k, Some(bindings));
         }
+        let mut host_config =  HostConfig::default();
+        host_config.port_bindings = Some(port_map);
 
         let config = Config {
             image: Some(image_name.clone()),
             env: Some(env.to_vec()),
-            host_config: Some(HostConfig {
-                port_bindings: Some(port_map),
-                ..Default::default()
-            }),
+            host_config: Some(host_config),
             ..Default::default()
         };
 

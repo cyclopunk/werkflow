@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+use handlebars::Handlebars;
 use log::{debug, info};
+use tokio::stream::StreamExt;
 use werkflow_agents::{AgentCommand, AgentController, work::{Workload, WorkloadStatus}};
-use warp::Rejection;
+use warp::{Rejection, Stream};
 use warp::Reply;
-use werkflow_scripting::Script;
+use werkflow_scripting::{Script, ScriptHost};
 use anyhow::{anyhow, Result};
 use std::convert::Infallible;
 
@@ -141,4 +144,37 @@ pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply
         .command(AgentCommand::Start);
 
     Ok(format!("The agent has been started."))
+}
+
+pub async fn process_template<S,B>(template_name : String, script : S, state: HashMap<String, u64>) -> Result<impl warp::Reply, Infallible> 
+where
+    S: Stream<Item = Result<B, warp::Error>>,
+    S: StreamExt,
+    B: warp::Buf{
+    
+    let mut handlebars = Handlebars::new();
+    
+    let mut pinnedStream = Box::pin(script);
+
+    let mut script_txt = String::new();
+
+    while let Some(item) = pinnedStream.next().await {
+        let mut data = item.unwrap();
+        script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
+    }
+
+    handlebars.register_template_file(&template_name, 
+        format!("templates/{}", template_name)).expect("load template file");
+
+    let data:HashMap<String,String> = HashMap::new();
+    
+    let mut script_host = ScriptHost::new();
+    
+    script_host.scope.push("state", state);
+
+    let result = script_host.execute(Script::with_name(&template_name[..], &script_txt)).await;
+
+    let html = handlebars.render(&template_name, &result.unwrap().underlying).unwrap();
+    
+    Ok(ammonia::clean(&html))
 }

@@ -2,7 +2,7 @@ use log::{debug, info};
 use rand::prelude::*;
 use rhai::Scope;
 use serde_json::Value;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 pub use rhai::serde::*;
 
@@ -95,6 +95,28 @@ impl ScriptResult {
     }
 }
 
+#[derive(Clone, Debug)]
+struct HostState {
+    fields: HashMap<String, Dynamic>
+}
+
+impl HostState {
+    fn new() -> Self {
+        HostState {
+            fields: HashMap::new()
+        }
+    }
+    fn get_field(&mut self, index: String) -> Dynamic {
+        let default = to_dynamic("").unwrap();
+
+        let dynamic_or_blank = self.fields.get(&index).unwrap_or(&default);
+
+        dynamic_or_blank.clone()
+    }
+    fn set_field(&mut self, index: ImmutableString, value: Dynamic) {
+        self.fields.insert(index.to_string(), value);
+    }
+}
 impl<'a> ScriptHost<'a> {
     pub fn new() -> ScriptHost<'a> {
         ScriptHost {
@@ -114,12 +136,16 @@ impl<'a> ScriptHost<'a> {
         self.engine.register_type::<T>();
     }
 
-    pub async fn execute(&'a self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+    pub async fn execute(&'a mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
         debug!("Start running script in Script Host:\n {:?}", script);
 
         let d = self
             .engine
-            .eval::<Dynamic>(&script.body)
+            .register_type::<HostState>()
+            .register_fn("new_state", HostState::new)
+            .register_indexer_get(HostState::get_field)
+            .register_indexer_set(HostState::set_field)
+            .eval_with_scope::<Dynamic>(&mut self.scope.clone(), &script.body)
             .map_err(|err| ScriptHostError {
                 error_text: err.to_string(),
                 line: err.position().position().unwrap_or_default(),
@@ -192,7 +218,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host() {
         init();
-        let sh = ScriptHost::new();
+        let mut sh = ScriptHost::new();
         let script = r#"
         print ("Hello" + " World");
         "test"
@@ -208,7 +234,7 @@ mod tests {
     #[tokio::test(threaded_scheduler)]
     async fn script_host_adv() {
         init();
-        let sh = ScriptHost::new();
+        let mut sh = ScriptHost::new();
         let script = r#"
         print ("Advanced Test");
         #{

@@ -120,6 +120,7 @@ impl Feature for WebFeature {
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
                     .or(filters::list_jobs(controller.clone()))
+                    .or(filters::templates(controller.clone()))
                     .or(filters::metrics())
                     .with(log);
 

@@ -7,12 +7,13 @@ use werkflow_core::{
     sec::{DnsProvider, Zone},
     HttpAction,
 };
+use itertools::Itertools; 
 use werkflow_scripting::{Array, ImmutableString};
 
 use log::{error, trace};
 use rand::Rng;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer};
-use std::collections::HashMap;
+use std::{process::Command, collections::HashMap};
 use werkflow_scripting::Map;
 
 use crate::{comm::AgentEvent, AgentController, WorkloadData};
@@ -296,6 +297,55 @@ impl CommandHost {
                 .unwrap();
         });
     }
+
+    /// Provides a way to guess external ip on windows and linux.
+    
+    fn get_ip() -> String {
+        let main_interface = if cfg!(target_family="windows") {
+            let cmd = Command::new("C:\\windows\\System32\\route.exe")
+                    .args(&["print"]).output().unwrap();
+            
+            let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();    
+            
+            for line in table.split("\n") {
+                
+                if line.contains(" 0.0.0.0") {
+                   let (_gw, _nmask, _next_hop, interface) = line
+                        .split_whitespace()
+                        .map(|s| s)
+                        .next_tuple().unwrap();
+
+                    return interface.to_string()
+                }
+            }
+            "unknown"
+        } else {
+           let cmd = Command::new("route -n").output().unwrap();
+           let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();    
+            
+           for line in table.split("\n") {               
+               if line.starts_with("0.0.0.0") {
+                  return  line
+                       .split_whitespace()
+                       .last()
+                       .unwrap_or("eth0").to_string();
+               }
+           }
+           "eth0"
+        };
+        for iface in get_if_addrs::get_if_addrs().unwrap() {
+            println!("{:?}", iface);
+            if iface.is_loopback() {
+                continue;
+            }
+            
+            if iface.ip().to_string() == main_interface || iface.name == main_interface {
+                return iface.ip().to_string();
+            }
+        }
+
+        "".into()
+    }
     
     /// Start a container from an image name.
     /// Env is a list of strings VAR=WHATEVER
@@ -377,7 +427,7 @@ impl Workload {
             e.register_fn("add_record", CommandHost::add_a_record);
             e.register_fn("start_container", CommandHost::start_container);
             e.register_fn("create_container", CommandHost::create_container);
-            e.register_fn("my_ip", machine_ip::get);
+            e.register_fn("ip", CommandHost::get_ip);
             e.register_result_fn("get", http::get);
             e.register_result_fn("post", http::post);
         });
@@ -402,7 +452,7 @@ mod test {
     use super::*;
     use serde::*;
     
-    use tokio::runtime::Runtime;
+    
     use werkflow_scripting::Engine;
 
     #[derive(Serialize, Deserialize, PartialEq, Default)]
@@ -446,12 +496,12 @@ mod test {
     /// 
     ///     let script = Script::new(
     ///     r#"                
-    ///     let ch = config("../../config/werkflow.toml");
+    ///            let ch = config("../../config/werkflow.toml");
     /// 
-    ///              ch.add_record("autobuild.cloud", "test-script", "127.0.0.1");
+    ///            ch.add_record("autobuild.cloud", "test-script", ip());
     /// 
-    ///              ch.start_container("test-g", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
-    ///           "#,
+    ///            ch.start_container("test-grafana", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
+    ///      "#,
     ///        );
     ///        let workload = Workload::with_script(agent.clone(), script);
     ///  
@@ -467,7 +517,7 @@ mod test {
             r#"                
                 let user = post("https://jsonplaceholder.typicode.com/users", #{ name: "Test".to_string() } );
                 print("user: " + user);
-                print("my ip" + my_ip);
+                print("my ip" + ip());
                 user
             "#,
         );

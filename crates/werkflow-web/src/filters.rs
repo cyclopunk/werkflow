@@ -1,6 +1,6 @@
 use warp::Filter;
 use werkflow_scripting::Script;
-use std::convert::Infallible;
+use std::{collections::HashMap, convert::Infallible};
 
 use crate::{AgentController, handlers};
 
@@ -9,7 +9,10 @@ fn with_agent(
 ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || agent.clone())
 }
-
+fn with_state(
+) -> impl Filter<Extract = (HashMap<String,u64>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || HashMap::new())
+}
 pub fn metrics() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
     warp::path!("metrics")
         .and(warp::get())
@@ -60,4 +63,15 @@ pub fn list_jobs(
         .and(warp::get())
         .and(with_agent(agent))
         .and_then(handlers::list_jobs)
+}
+
+
+pub fn templates(
+    agent: AgentController,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path!("content" / String )
+        .and(warp::post())
+        .and(warp::body::stream())
+        .and(with_state())
+        .and_then(handlers::process_template)
 }

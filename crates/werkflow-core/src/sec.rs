@@ -214,7 +214,7 @@ impl CertificateProvider {
 
         Ok(certificates)
     }
-    pub async fn new(email: &str) -> Result<CertificateProvider> {
+    pub async fn new(_email: &str) -> Result<CertificateProvider> {
         use acme2_slim::Directory;
 
         let directory = Directory::lets_encrypt()
