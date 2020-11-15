@@ -14,7 +14,6 @@ use std::{sync::Arc, time::Instant};
 use threads::AsyncRunner;
 use tokio::runtime::Builder;
 
-
 use lazy_static::*;
 
 use tokio::runtime::Runtime;
@@ -46,7 +45,7 @@ impl<'a> Default for Agent {
             runtime: Runtime::new().unwrap(),
             state: AgentState::Stopped,
             work_handles: Vec::default(),
-            hub: Arc::new(RwLock::new(Hub::new()))
+            hub: Arc::new(RwLock::new(Hub::new())),
         };
 
         agt
@@ -224,11 +223,13 @@ impl AgentController {
 }
 #[derive(Clone)]
 pub struct FeatureHandle {
-    handle: Arc<RwLock<dyn Feature>>
+    handle: Arc<RwLock<dyn Feature>>,
 }
 
 impl FeatureHandle {
-    pub fn new<T>(feature: T) -> FeatureHandle where T: Feature + 'static 
+    pub fn new<T>(feature: T) -> FeatureHandle
+    where
+        T: Feature + 'static,
     {
         FeatureHandle {
             handle: Arc::new(RwLock::new(feature)),
@@ -236,7 +237,7 @@ impl FeatureHandle {
     }
 }
 
-impl <'a> FeatureHandle {
+impl<'a> FeatureHandle {
     pub async fn with_write<F>(&self, callback: F)
     where
         F: FnOnce(&mut RwLockWriteGuard<dyn Feature>) + Sync + Send + 'static,
@@ -250,7 +251,6 @@ impl <'a> FeatureHandle {
         callback(&self.handle.read());
     }
 }
-
 
 pub struct Agent {
     pub name: String,
@@ -275,7 +275,7 @@ impl Agent {
             runtime: runtime,
             state: AgentState::Stopped,
             work_handles: Vec::default(),
-            hub: Arc::new(RwLock::new(Hub::new()))        
+            hub: Arc::new(RwLock::new(Hub::new())),
         }
     }
     pub fn status(&self) -> AgentState {
@@ -288,18 +288,17 @@ impl Agent {
             AgentCommand::Start => {
                 self.state = AgentState::Ok;
                 let work_handles = self.work_handles.clone();
-                
+
                 println!("Workload handles: {}", work_handles.len());
                 // rerun defered workload handles
                 for wl in work_handles {
-                    
                     let wl2 = wl.clone();
-                    
+
                     let (status, workload) = AsyncRunner::block_on(async move {
                         let wl = wl.read().await;
                         (wl.status.clone(), wl.workload.as_ref().unwrap().clone())
                     });
-                    
+
                     if status == WorkloadStatus::None {
                         self.run(workload);
                     }
@@ -309,7 +308,7 @@ impl Agent {
                         handle.status = WorkloadStatus::Complete;
                     });
                 }
-                channel.sender.send(AgentEvent::Started).unwrap();                
+                channel.sender.send(AgentEvent::Started).unwrap();
             }
             AgentCommand::Schedule(_, _) => {}
             AgentCommand::Stop => {
@@ -323,21 +322,20 @@ impl Agent {
     /// This will capture the statistics of the workload run and store it in
     /// the agent.
     pub fn run(&mut self, workload: Workload) -> Arc<tokio::sync::RwLock<WorkloadHandle>> {
-
         if self.state == AgentState::Stopped {
             info!("Agent stopped, Not running workload {}. Work will be deferred until the agent starts.", workload.id);
-            
+
             let work_handle = Arc::new(tokio::sync::RwLock::new(WorkloadHandle {
                 id: workload.id,
                 join_handle: None,
                 status: WorkloadStatus::None,
-                workload:Some(workload),
+                workload: Some(workload),
                 ..Default::default()
             }));
 
             self.work_handles.push(work_handle.clone());
 
-            return work_handle;            
+            return work_handle;
         }
 
         let id = workload.id;
@@ -353,7 +351,6 @@ impl Agent {
             let mills = start.elapsed().as_millis();
 
             info!("[Workload {}] Duration: {}ms", id, mills as f64);
-
 
             prom::WORKLOAD_TOTAL_TIME.inc_by(mills as i64);
             crate::prom::WORKLOAD_TIME_COLLECTOR
@@ -395,7 +392,7 @@ pub enum AgentMessage {
     Start,
     Do(&'static str),
 }
-pub trait Feature : Send + Sync {
+pub trait Feature: Send + Sync {
     fn init(&mut self, agent: AgentController);
     fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;

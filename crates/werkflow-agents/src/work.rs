@@ -1,5 +1,6 @@
 use crate::cfg::AgentConfiguration;
 use crate::AsyncRunner;
+use itertools::Itertools;
 use werkflow_config::read_config;
 use werkflow_config::ConfigSource;
 use werkflow_core::sec::ZoneRecord;
@@ -7,13 +8,12 @@ use werkflow_core::{
     sec::{DnsProvider, Zone},
     HttpAction,
 };
-use itertools::Itertools; 
 use werkflow_scripting::{Array, ImmutableString};
 
 use log::{error, trace};
 use rand::Rng;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer};
-use std::{process::Command, collections::HashMap};
+use std::{collections::HashMap, process::Command};
 use werkflow_scripting::Map;
 
 use crate::{comm::AgentEvent, AgentController, WorkloadData};
@@ -44,7 +44,7 @@ impl Clone for WorkloadHandle {
             status: self.status.clone(),
             join_handle: None,
             result: None,
-            workload: self.workload.clone()
+            workload: self.workload.clone(),
         };
     }
 }
@@ -283,62 +283,62 @@ impl CommandHost {
             config: config.unwrap(),
         }
     }
-    fn create_container(&mut self, 
-        name : ImmutableString, 
-        image : ImmutableString, 
-        env : Array) {
-        
-        let s =  AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
-        let environment : Vec<String> = env.iter().map(|s| s.to_string()).collect::<Vec<String>>().clone();
+    fn create_container(&mut self, name: ImmutableString, image: ImmutableString, env: Array) {
+        let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+        let environment: Vec<String> = env
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .clone();
 
-        AsyncRunner::block_on(async move { 
-            s.create_and_start_container(name.to_string(),image.to_string(), environment.as_slice())
-                .await
-                .unwrap();
+        AsyncRunner::block_on(async move {
+            s.create_and_start_container(
+                name.to_string(),
+                image.to_string(),
+                environment.as_slice(),
+            )
+            .await
+            .unwrap();
         });
     }
 
     /// Provides a way to guess external ip on windows and linux.
-    
-    fn get_ip() -> String {
-        let main_interface = if cfg!(target_family="windows") {
-            let cmd = Command::new("C:\\windows\\System32\\route.exe")
-                    .args(&["print"]).output().unwrap();
-            
-            let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();    
-            
-            for line in table.split("\n") {
-                
-                if line.contains(" 0.0.0.0") {
-                   let (_gw, _nmask, _next_hop, interface) = line
-                        .split_whitespace()
-                        .map(|s| s)
-                        .next_tuple().unwrap();
 
-                    return interface.to_string()
+    fn get_ip() -> String {
+        let main_interface = if cfg!(target_family = "windows") {
+            let cmd = Command::new("C:\\windows\\System32\\route.exe")
+                .args(&["print"])
+                .output()
+                .unwrap();
+
+            let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();
+
+            for line in table.split("\n") {
+                if line.contains(" 0.0.0.0") {
+                    let (_gw, _nmask, _next_hop, interface) =
+                        line.split_whitespace().map(|s| s).next_tuple().unwrap();
+
+                    return interface.to_string();
                 }
             }
             "unknown"
         } else {
-           let cmd = Command::new("route -n").output().unwrap();
-           let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();    
-            
-           for line in table.split("\n") {               
-               if line.starts_with("0.0.0.0") {
-                  return  line
-                       .split_whitespace()
-                       .last()
-                       .unwrap_or("eth0").to_string();
-               }
-           }
-           "eth0"
+            let cmd = Command::new("route -n").output().unwrap();
+            let table = String::from_utf8(cmd.stdout.to_ascii_uppercase()).unwrap();
+
+            for line in table.split("\n") {
+                if line.starts_with("0.0.0.0") {
+                    return line.split_whitespace().last().unwrap_or("eth0").to_string();
+                }
+            }
+            "eth0"
         };
         for iface in get_if_addrs::get_if_addrs().unwrap() {
             println!("{:?}", iface);
             if iface.is_loopback() {
                 continue;
             }
-            
+
             if iface.ip().to_string() == main_interface || iface.name == main_interface {
                 return iface.ip().to_string();
             }
@@ -346,43 +346,51 @@ impl CommandHost {
 
         "".into()
     }
-    
+
     /// Start a container from an image name.
     /// Env is a list of strings VAR=WHATEVER
     /// port_forward is a map of strings such that the rhai map literal #{ "3000/tcp": "3000"  } would map local port 3000 to 3000/tcp
-    fn start_container(&mut self, 
-        name : ImmutableString, 
-        image : ImmutableString, 
-        env : Array,
-        ports: Map) {
-        
-        let s =  AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+    fn start_container(
+        &mut self,
+        name: ImmutableString,
+        image: ImmutableString,
+        env: Array,
+        ports: Map,
+    ) {
+        let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
         // convert envs and forwards.
-        let environment : Vec<String> = env.iter().map(|s| s.to_string()).collect::<Vec<String>>().clone();
-        let mut forwards : HashMap<String, String> = HashMap::new();
-        
+        let environment: Vec<String> = env
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .clone();
+        let mut forwards: HashMap<String, String> = HashMap::new();
+
         ports.iter().for_each(|(k, v)| {
             forwards.insert(k.to_string(), v.to_string());
         });
 
-        AsyncRunner::block_on(async move { 
-            s.start_container(name.to_string(),image.to_string(), environment.as_slice(), forwards.clone())
-                .await
-                .unwrap();
+        AsyncRunner::block_on(async move {
+            s.start_container(
+                name.to_string(),
+                image.to_string(),
+                environment.as_slice(),
+                forwards.clone(),
+            )
+            .await
+            .unwrap();
         });
     }
     // add a DNS A record
-    fn add_a_record(
-        &mut self,
-        zone: String,
-        host: String,
-        target: String
-    ) {
+    fn add_a_record(&mut self, zone: String, host: String, target: String) {
         if let Some(dns_cfg) = &self.config.dns {
             let provider = DnsProvider::new(&dns_cfg.api_key).unwrap();
 
-            let result =
-                AsyncRunner::block_on(async move { provider.add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target)).await });
+            let result = AsyncRunner::block_on(async move {
+                provider
+                    .add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target))
+                    .await
+            });
 
             match result {
                 Ok(_) => print!("Zone added"),
@@ -451,8 +459,7 @@ impl Workload {
 mod test {
     use super::*;
     use serde::*;
-    
-    
+
     use werkflow_scripting::Engine;
 
     #[derive(Serialize, Deserialize, PartialEq, Default)]
@@ -493,13 +500,13 @@ mod test {
     ///     let r = Runtime::new().unwrap();
     ///     let handle = r.handle().clone();
     ///     let agent = AgentController::with_runtime("test-agent".into(), r);
-    /// 
+    ///
     ///     let script = Script::new(
     ///     r#"                
     ///            let ch = config("../../config/werkflow.toml");
-    /// 
+    ///
     ///            ch.add_record("autobuild.cloud", "test-script", ip());
-    /// 
+    ///
     ///            ch.start_container("test-grafana", "grafana/grafana", [], #{ "3000/tcp": "3000"  });
     ///      "#,
     ///        );
@@ -538,5 +545,4 @@ mod test {
         assert_eq!(1, user2.id);
         assert_eq!(user2.name, "Leanne Graham".to_string());
     }
-
 }

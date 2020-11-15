@@ -7,7 +7,8 @@ use std::{collections::HashMap, fmt};
 pub use rhai::serde::*;
 
 pub use rhai::{
-    Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn, RegisterResultFn, Array
+    Array, Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position, RegisterFn,
+    RegisterResultFn,
 };
 
 use serde::{Deserialize, Serialize};
@@ -72,7 +73,11 @@ impl fmt::Display for ScriptHostError {
 // Implement std::fmt::Debug for AppError
 impl fmt::Debug for ScriptHostError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{ file: {}, line: {} error: {} }}", self.file, self.line,self.error_text) // programmer-facing output
+        write!(
+            f,
+            "{{ file: {}, line: {} error: {} }}",
+            self.file, self.line, self.error_text
+        ) // programmer-facing output
     }
 }
 
@@ -91,24 +96,23 @@ impl ScriptResult {
         serde_json::from_value::<T>(self.underlying.clone()).map_err(|_err| ScriptHostError {
             error_text: format!("Could not deserialize {} into struct", bare_str).into(),
             ..Default::default()
-        })       
+        })
     }
 }
 
 /// State for the script host
 #[derive(Clone, Debug)]
 pub struct HostState {
-    fields: HashMap<String, String>
+    fields: HashMap<String, String>,
 }
 
 impl HostState {
     pub fn new() -> Self {
         HostState {
-            fields: HashMap::new()
+            fields: HashMap::new(),
         }
     }
     fn get_field(&mut self, index: String) -> String {
-
         if let Some(field_value) = self.fields.get(&index) {
             field_value.to_string()
         } else {
@@ -181,7 +185,7 @@ impl<'a> ScriptHost<'a> {
         func(&mut self.engine);
     }
 
-    pub fn execute (&mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
+    pub fn execute(&mut self, script: Script) -> Result<ScriptResult, ScriptHostError> {
         debug!("Start running script in Script Host:\n {:?}", script);
         let mut scope = self.scope.clone();
 
@@ -205,11 +209,9 @@ impl<'a> ScriptHost<'a> {
 
         match result {
             Ok(r) => {
-
                 let bare_str = r.as_str().unwrap_or_default();
 
                 let val: Value = if r.is::<String>() {
-                    
                     if let Ok(obj) = serde_json::from_str(bare_str) {
                         obj
                     } else {
@@ -218,15 +220,22 @@ impl<'a> ScriptHost<'a> {
                     }
                 } else {
                     from_dynamic::<Value>(&r).map_err(|_err| ScriptHostError {
-                        error_text: format!("Could not deserialize {} into struct", bare_str).into(),
+                        error_text: format!("Could not deserialize {} into struct", bare_str)
+                            .into(),
                         ..Default::default()
                     })?
                 };
-                Ok(ScriptResult { is_error: false, underlying: serde_json::to_value(val).unwrap() })
-            },
+                Ok(ScriptResult {
+                    is_error: false,
+                    underlying: serde_json::to_value(val).unwrap(),
+                })
+            }
             Err(err) => {
                 println!("Error running script {:?}", err);
-                Ok(ScriptResult { is_error: true, underlying: serde_json::to_value(err.to_string()).unwrap() })
+                Ok(ScriptResult {
+                    is_error: true,
+                    underlying: serde_json::to_value(err.to_string()).unwrap(),
+                })
             }
         }
     }

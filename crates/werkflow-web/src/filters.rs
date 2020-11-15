@@ -1,16 +1,17 @@
+use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::sync::RwLock;
 use warp::Filter;
 use werkflow_scripting::{HostState, Script};
-use std::{sync::Arc, collections::HashMap, convert::Infallible};
 
-use crate::{AgentController, handlers};
+use crate::{handlers, AgentController};
 
 fn with_agent(
     agent: AgentController,
 ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || agent.clone())
 }
-fn with_state( state: Arc<RwLock<HostState>>
+fn with_state(
+    state: Arc<RwLock<HostState>>,
 ) -> impl Filter<Extract = (Arc<RwLock<HostState>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || state.clone())
 }
@@ -66,12 +67,11 @@ pub fn list_jobs(
         .and_then(handlers::list_jobs)
 }
 
-
 pub fn templates(
     agent: AgentController,
-    state: Arc<RwLock<HostState>>
+    state: Arc<RwLock<HostState>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
-    warp::path!("content" / String )
+    warp::path!("content" / String)
         .and(warp::post())
         .and(warp::body::stream())
         .and(with_state(state))

@@ -199,7 +199,7 @@ impl CertificateProvider {
                 .await?;
 
             std::thread::sleep(Duration::from_secs(30));
-            
+
             challenge
                 .validate(&self.account, Duration::from_secs(10))
                 .await
@@ -258,7 +258,11 @@ mod test {
             let domains = vec!["test3.autobuild.cloud".into()];
 
             let certs = p
-                .order_with_dns(DnsProvider::new(&val.into_str()?)?, &Zone::ByName("autobuild.cloud".into()), domains.clone())
+                .order_with_dns(
+                    DnsProvider::new(&val.into_str()?)?,
+                    &Zone::ByName("autobuild.cloud".into()),
+                    domains.clone(),
+                )
                 .await?;
 
             for (i, cert) in certs.iter().enumerate() {
