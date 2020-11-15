@@ -8,10 +8,13 @@ port = 3030
 
 [web.tls]
 
+# Default paths that are initialized automatically.
 private_key_path = "config/agent.key"
 certificate_path = "config/agent.crt"
 
 [dns]
 
+# Cloudflare is currently the only supported provider for dns services.
+provider="cloudflare"
 api_key="<ClOUDFLAREAPIKEY>"
 domain="yourdomain.com"

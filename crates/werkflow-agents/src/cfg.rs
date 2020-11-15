@@ -2,6 +2,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use werkflow_core::sec::DnsProvider;
 
 /// Trait that will allow configurations to be easily
 /// created, structured and shared without knowing the schema of the config.
@@ -44,9 +45,11 @@ pub trait ConfigDefinition {
     }
 }
 
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive( Clone, Serialize, Deserialize)]
 pub struct DnsConfiguration {
     pub api_key: String,
+    pub provider: DnsProvider,
+
 }
 
 impl ConfigDefinition for DnsConfiguration {}
@@ -60,6 +63,7 @@ pub struct AgentConfiguration {
 fn test_config_get() {
     let dns = DnsConfiguration {
         api_key: "test".to_string(),
+        provider: DnsProvider::Cloudflare
     };
 
     assert_eq!("test", dns.get::<String>("api_key"));

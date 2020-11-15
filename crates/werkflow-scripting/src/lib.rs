@@ -258,7 +258,7 @@ mod tests {
 
         assert_eq!(
             User { id: 42 },
-            result.to::<User>().unwrap_or(User { id: 0 })
+            result.to::<User>().expect("to convert to a user")
         );
     }
 }

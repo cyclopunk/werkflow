@@ -4140,6 +4140,7 @@ version = "0.1.0"
 dependencies = [
  "acme2-slim",
  "anyhow",
+ "async-trait",
  "cloudflare-rs",
  "config",
  "crossbeam-channel 0.5.0",

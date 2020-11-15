@@ -8,7 +8,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, time::{Duration, Instant}};
 use tokio::runtime::Builder;
-use werkflow_core::sec::DnsProvider;
+use werkflow_core::sec::{Authentication, DnsControllerClient, DnsProvider};
 use werkflow_core::sec::ZoneRecord;
 use werkflow_core::sec::{CertificateProvider, Zone};
 use werkflow_web::*;
@@ -70,6 +70,7 @@ fn main() -> Result<()> {
             .unwrap_or("config/werkflow.toml")
             .clone();
 
+        // if the config_name is a url, use the http/https as a config source.
         let config: AgentConfig = if let Ok(_) = config_name.parse::<Url>() {
             werkflow_config::read_config(ConfigSource::Http(HttpAction::Get(
                 config_name.to_string(),
@@ -81,32 +82,35 @@ fn main() -> Result<()> {
                 .await
                 .unwrap()
         };
-        let bind_address = config
+        let bind_address = {
+            config
             .web
             .as_ref()
-            .unwrap_or(&WebConfiguration::default())
-            .bind_address
-            .to_string();
+            .map(|c| c.bind_address)
+            .map(|c| c.to_string())
+            .unwrap_or("127.0.0.1".into())            
+        };
             
         let configure_tls = config
             .web
             .as_ref()
             .map(|o| match o.tls.as_ref() {
                 Some(conf) => conf,
-                None => {
-                    panic!("Missing TLS configuration. Werkflow agents require this configuration.")
-                }
+                None =>  panic!("Missing TLS configuration. Werkflow agents require this configuration.")                
             })
-            .unwrap();
+            .expect("to have a tls configuration");
 
+        // if certificates for this agent don't exist, create them with the agent_name + dns_config.domain.
+        // This uses the CertificateProvider (which is a abstraction for LetsEncrypt) and manages the entire
+        // certificate creation through that.
         if !Path::new(&configure_tls.certificate_path).exists() {
             if let Some(dns_config) = config.dns {
                 let fqdn = format!("{}.{}", config.name, dns_config.domain);
 
                 let zone = Zone::ByName(dns_config.domain.into());
 
-                let provider = DnsProvider::new(&dns_config.api_key).expect("create dns provider");
-
+                let provider = DnsProvider::Cloudflare.new(Authentication::ApiToken(dns_config.api_key.to_string()));
+                
                 provider
                     .add_or_replace(&zone, &ZoneRecord::A(fqdn.clone(), bind_address))
                     .await
@@ -134,8 +138,12 @@ fn main() -> Result<()> {
             }
         }
 
-        if let Some(web_config) = config.web {
+        if let Some(web_config) = config.web.clone() {
             let mut channels = Vec::new();
+            // it's currently possible to spin up multiple agents on a single instance
+            // this will read the AgentConfig for a number and spin up that many agents.
+            // Each agent will have their own tokio runtime. Agents will only communicate with eachother
+            // via network channels.
             for i in 0..config.number {
                 info!("Starting agent {}", i);
                 let runtime = Builder::new()

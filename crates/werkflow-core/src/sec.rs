@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{any::Any, sync::Arc, time::Duration};
 
 use acme2_slim::{cert::SignedCertificate, Account};
 use anyhow::{anyhow, Result};
@@ -11,15 +11,26 @@ use cloudflare::{
     framework::{async_api::ApiClient, async_api::Client, Environment, HttpApiClientConfig},
 };
 use dns::ListDnsRecords;
+use async_trait::async_trait;
+use serde::{Serialize, Deserialize};
 
-pub struct DnsProvider {
-    client: Client,
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub enum DnsProvider {
+    Cloudflare
 }
 
+#[async_trait]
+pub trait DnsControllerClient {    
+    fn new_client(auth : Authentication) -> Self where Self: Sized;
+    async fn get_id(&self, zone: &Zone) -> Result<String>;
+    async fn get_record_id(&self, zone: &Zone, record: &ZoneRecord) -> Result<String>;
+    async fn delete_record(&self, zone: &Zone, record: &ZoneRecord) -> Result<String>;
+    async fn add_or_replace(&self, zone: &Zone, record: &ZoneRecord) -> Result<String>;
+}
 #[derive(Clone, Debug)]
 pub enum Zone {
     ById(String),
-    ByName(String),
+    ByName(String)
 }
 
 #[derive(Clone, Debug)]
@@ -32,28 +43,24 @@ pub enum ZoneRecord {
     Name(String),
 }
 
+
+#[derive(Clone)]
+pub enum Authentication {
+    ApiToken(String),
+    UserPass(String, String),
+    SslCertificate(String, String)
+}
+
 /// Implementation of a DNS provider using Cloudflare
-impl DnsProvider {
-    pub fn new(api_token: &str) -> Result<DnsProvider> {
-        let creds = Credentials::UserAuthToken {
-            token: api_token.to_string(),
-        };
-
-        let api_client = Client::new(
-            creds,
-            HttpApiClientConfig::default(),
-            Environment::Production,
-        )
-        .map_err(|err| anyhow!("Could not create Cloudflare API client: {}", err))?;
-
-        Ok(DnsProvider { client: api_client })
-    }
+#[async_trait]
+impl DnsControllerClient for Client {
+    //type ClientType = Client;
+  
     async fn get_id(&self, zone: &Zone) -> Result<String> {
         match zone {
             Zone::ById(id) => Ok(id.clone()),
             Zone::ByName(name) => {
                 let api_result = self
-                    .client
                     .request(&ListZones {
                         params: ListZonesParams {
                             name: Some(name.clone()),
@@ -80,7 +87,6 @@ impl DnsProvider {
         };
 
         let api_result = self
-            .client
             .request(&ListDnsRecords {
                 zone_identifier: &self.get_id(zone).await?,
                 params: ListDnsRecordsParams {
@@ -96,11 +102,10 @@ impl DnsProvider {
         }
     }
 
-    pub async fn delete_record(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
+    async fn delete_record(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
         let id = self.get_record_id(zone, record).await?;
 
-        let _api_result = self
-            .client
+        let _api_result = self        
             .request(&DeleteDnsRecord {
                 zone_identifier: &self.get_id(zone).await?,
                 identifier: &id,
@@ -110,7 +115,7 @@ impl DnsProvider {
         Ok("Record deleted".into())
     }
 
-    pub async fn add_or_replace(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
+    async fn add_or_replace(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
         println!("Adding {:?} to {:?}", zone, record);
         let looked_up_zone = self.get_id(zone).await?;
 
@@ -150,15 +155,53 @@ impl DnsProvider {
         };
 
         let response = self
-            .client
             .request(&dns::CreateDnsRecord {
                 zone_identifier: &looked_up_zone,
                 params: params,
             })
             .await
-            .map_err(|err| anyhow!("Could not create TXT record client: {}", err))?;
+            .map_err(|err| anyhow!("Could not create record: {}", err))?;
 
         Ok(response.result.id)
+    }
+
+    fn new_client(auth : Authentication) -> Self where Self: Sized {
+        let creds = match auth {
+            Authentication::ApiToken(token) => {
+                Credentials::UserAuthToken {
+                    token
+                }
+            }
+            Authentication::UserPass(email,key) => {
+                Credentials::UserAuthKey {     
+                    email,
+                    key
+                }
+            }
+            Authentication::SslCertificate(_, _) => { panic!("SslCertificate not supported for Cloudflare Authentication")}
+        };
+
+        let api_client = Client::new(
+            creds,
+            HttpApiClientConfig::default(),
+            Environment::Production,
+        )
+        .map_err(|err| anyhow!("Could not create Cloudflare API client: {}", err))
+        .expect("to generate api client");
+
+        api_client
+    }
+}
+
+impl DnsProvider {
+    pub fn new(&self, auth:Authentication) -> Arc<impl DnsControllerClient> {
+        let client = match self {
+            DnsProvider::Cloudflare => {
+                Arc::new(Client::new_client(auth))
+            }
+        };
+
+        client
     }
 }
 
@@ -172,12 +215,12 @@ pub struct CertificateProvider {
 /// TODO Add http challenge and integrate with the web feature.CertificateProvider
 
 impl CertificateProvider {
-    pub async fn order_with_dns(
+    pub async fn order_with_dns  (
         &mut self,
-        provider: DnsProvider,
+        provider: Arc<impl DnsControllerClient>,
         zone: &Zone,
         domains: Vec<String>,
-    ) -> Result<Vec<SignedCertificate>> {
+    ) -> Result<Vec<SignedCertificate>>  {
         let order = self
             .account
             .create_order(&domains)
@@ -237,7 +280,8 @@ impl CertificateProvider {
 
 #[cfg(test)]
 mod test {
-    use super::{CertificateProvider, DnsProvider, Zone};
+    use crate::sec::Authentication;
+use super::{CertificateProvider, DnsProvider, Zone};
     use anyhow::{anyhow, Result};
     use config::Config;
     use config::File;
@@ -259,7 +303,7 @@ mod test {
 
             let certs = p
                 .order_with_dns(
-                    DnsProvider::new(&val.into_str()?)?,
+                    DnsProvider::Cloudflare.new(Authentication::ApiToken(val.into_str()?.to_string())).clone(),
                     &Zone::ByName("autobuild.cloud".into()),
                     domains.clone(),
                 )

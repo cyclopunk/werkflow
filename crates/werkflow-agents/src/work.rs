@@ -4,7 +4,7 @@ use crate::AsyncRunner;
 use itertools::Itertools;
 use werkflow_config::read_config;
 use werkflow_config::ConfigSource;
-use werkflow_core::sec::ZoneRecord;
+use werkflow_core::sec::{Authentication, DnsControllerClient, ZoneRecord};
 use werkflow_core::{
     sec::{DnsProvider, Zone},
     HttpAction,
@@ -334,9 +334,10 @@ impl CommandHost {
     // add a DNS A record
     fn add_a_record(&mut self, zone: String, host: String, target: String) {
         if let Some(dns_cfg) = &self.config.dns {
-            let provider = DnsProvider::new(&dns_cfg.api_key).unwrap();
-
+            let provider = DnsProvider::Cloudflare.new(Authentication::ApiToken(dns_cfg.api_key.to_string()));
             let result = AsyncRunner::block_on(async move {
+                
+                
                 provider
                     .add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target))
                     .await
