@@ -1,3 +1,4 @@
+
 use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
 use log::{debug, info};
@@ -6,7 +7,7 @@ use std::{sync::Arc};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
 use warp::Reply;
-use warp::{Rejection, Stream};
+use warp::{Rejection, Stream, http::Response};
 use werkflow_agents::{
     work::{Workload, WorkloadStatus},
     AgentCommand, AgentController,
@@ -184,5 +185,7 @@ where
 
     *state = script_host.scope.get_value("state").unwrap();
 
-    Ok(ammonia::clean(&html))
+    Ok(Response::builder()
+        .header("Content-Type", "text/html")
+        .body(ammonia::clean(&html)))
 }
