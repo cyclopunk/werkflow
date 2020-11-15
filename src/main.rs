@@ -3,9 +3,10 @@ use anyhow::Result;
 use clap::App;
 use clap::Arg;
 use log::info;
+use rand::Rng;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use std::{path::Path, time::Duration};
+use std::{path::Path, time::{Duration, Instant}};
 use tokio::runtime::Builder;
 use werkflow_core::sec::DnsProvider;
 use werkflow_core::sec::ZoneRecord;
@@ -31,6 +32,7 @@ struct DnsConfiguration {
 }
 
 fn main() -> Result<()> {
+
     let runtime = Builder::new()
         .threaded_scheduler()
         .enable_all()
@@ -85,6 +87,7 @@ fn main() -> Result<()> {
             .unwrap_or(&WebConfiguration::default())
             .bind_address
             .to_string();
+            
         let configure_tls = config
             .web
             .as_ref()
