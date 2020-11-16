@@ -195,13 +195,13 @@ where
 pub async fn process_template(
     template_name: String,
     state: Arc<RwLock<HostState>>,    
-    library: Library
+    library: Arc<RwLock<Library>>
 ) -> Result<impl warp::Reply, Infallible>
 {
 
     let mut hb = Handlebars::new();
 
-    let script_template = match library.get(&template_name) {
+    let script_template = match library.read().await.get(&template_name) {
         Ok(template) => {
             template
         }

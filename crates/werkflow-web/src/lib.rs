@@ -1,4 +1,5 @@
 use handlebars::Handlebars;
+use notify::DebouncedEvent;
 use rhtml::Library;
 use std::{fs, net::Ipv4Addr, sync::Arc, path::Path};
 use tokio::sync::RwLock;
@@ -104,16 +105,19 @@ impl Feature for WebFeature {
                 .inc();
         });                
 
-        let library = Library::load_directory("./templates")
+        let (watcher, rx2, library) = Library::watch_directory("./templates")
             .await
             .expect("template library to be created");
+
+        let threadsafe_lib = Arc::new(RwLock::new(library));
+
 
         let api = agent_status(controller.clone())            
             .or(filters::stop_agent(controller.clone()))
             .or(filters::start_agent(controller.clone()))
             .or(filters::start_job(controller.clone()))
             .or(filters::list_jobs(controller.clone()))
-            .or(filters::templates(controller.clone(), state.clone(), library))
+            .or(filters::templates(controller.clone(), state.clone(), threadsafe_lib.clone()))
             .or(filters::metrics())
             .with(log);
 
@@ -136,7 +140,36 @@ impl Feature for WebFeature {
             server.bind_with_graceful_shutdown((config.bind_address, config.port), async {
                 rx.await.ok();
             });
+        self.agent.as_ref().unwrap().agent.read().await.runtime.spawn(async move {
+            // move the watcher here so the channel stays alive.
+            let watcher = watcher;
+            let lib = threadsafe_lib.clone();
+            loop {
+                let x = rx2.recv();
+                match x {
+                    Ok(event) => {
+                        match (event) {
+                            DebouncedEvent::NoticeWrite(file) | DebouncedEvent::Write(file) => {
+                                let mut writer = lib.write().await;
 
+                                writer.update_from_file(file).await;
+                            }
+                            DebouncedEvent::NoticeRemove(_) => {}
+                            DebouncedEvent::Create(_) => {}
+                            DebouncedEvent::Chmod(_) => {}
+                            DebouncedEvent::Remove(_) => {}
+                            DebouncedEvent::Rename(_, _) => {}
+                            DebouncedEvent::Rescan => {}
+                            DebouncedEvent::Error(_, _) => {}
+                        }
+                    },
+                    Err(e) => {
+                        println!("watch error: {}", e.to_string());
+                        break;
+                    },
+                 }
+            }
+        });
         self.agent.as_ref().unwrap().agent.read().await.runtime.spawn(srv);        
     }
 

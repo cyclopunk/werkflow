@@ -16,8 +16,8 @@ fn with_state(
     warp::any().map(move || state.clone())
 }
 fn with_library (
-    library: Library
-) -> impl Filter<Extract = (Library,), Error = std::convert::Infallible> + Clone {
+    library: Arc<RwLock<Library>>
+) -> impl Filter<Extract = (Arc<RwLock<Library>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || library.clone())
 }
 pub fn metrics() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -75,12 +75,12 @@ pub fn list_jobs(
 pub fn templates<'a>(
     _agent: AgentController,
     state: Arc<RwLock<HostState>>,
-    library: Library,
+    library: Arc<RwLock<Library>>,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone + 'a {
     warp::path!("content" / String)
         .and(warp::any())
         .and(with_state(state))
-        .and(with_library(library))
+        .and(with_library(library.clone()))
         .and_then(handlers::process_template)
 }
 

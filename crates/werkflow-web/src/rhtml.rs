@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::Path, str::FromStr,  fs};
+use std::sync::mpsc::Receiver;
+use std::sync::mpsc::channel;
+use notify::{DebouncedEvent, ReadDirectoryChangesWatcher, RecursiveMode, Watcher, watcher};
+use std::{time::Duration, collections::HashMap, fs, path::Path, str::FromStr};
 
 use AsRef;
 use log::{info, warn};
@@ -25,6 +28,45 @@ impl Library {
                 Err(anyhow!("Could not load script"))
             }
         }
+    }
+    pub async fn update_from_file(&mut self, path: impl AsRef<Path>) {
+        let path = &path.as_ref().to_path_buf();
+        let file_name = path.file_name().unwrap().to_str().unwrap();
+
+        if file_name.ends_with(".rhtml"){
+            let template_name = file_name.split(".").collect::<Vec<&str>>()[0];
+            match ScriptTemplate::from_file(path).await {
+                Ok(mut script) => {
+                    script.source = file_name.to_string();
+                    self.lib.insert(template_name.into(), script);
+                }
+                Err(err) => {
+                    warn!("Couldn't load script into library. name: {} error: {}", template_name, err);
+                }
+            }
+        }
+    }
+    pub async fn watch_directory(path: impl AsRef<Path>) -> Result<(ReadDirectoryChangesWatcher, Receiver<DebouncedEvent>, Library)> {
+        
+        let lib = Library::load_directory(&path).await?;
+        let (tx, rx) = channel::<DebouncedEvent>();
+
+        // Create a watcher object, delivering debounced events.
+        // The notification back-end is selected based on the platform.
+        let mut watcher = watcher(tx, Duration::from_secs(3)).unwrap();
+
+        // Add a path to be watched. All files and directories at that path and
+        // below will be monitored for changes.
+        watcher.watch(path, RecursiveMode::Recursive).unwrap();
+
+        /*loop {
+            match rx.recv() {
+                Ok(event) => println!("{:?}", event),
+                Err(e) => println!("watch error: {:?}", e),
+            }
+        }*/
+
+        Ok((watcher, rx, lib))
     }
     pub async fn load_directory(path: impl AsRef<Path>) -> Result<Library> {
         
