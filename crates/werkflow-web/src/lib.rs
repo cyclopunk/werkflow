@@ -1,10 +1,11 @@
 use handlebars::Handlebars;
-use std::{net::Ipv4Addr, sync::Arc, fs};
+use rhtml::Library;
+use std::{fs, net::Ipv4Addr, sync::Arc, path::Path};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
 use werkflow_scripting::state::HostState;
-
+use async_trait::async_trait;
 
 
 use log::info;
@@ -24,6 +25,7 @@ pub mod model;
 
 mod filters;
 mod handlers;
+mod rhtml;
 
 pub struct WebFeature {
     config: WebConfiguration,
@@ -71,105 +73,84 @@ impl ConfigDefinition for WebConfiguration {}
 
 impl ConfigDefinition for TlsConfiguration {}
 
+#[async_trait]
 impl Feature for WebFeature {
-    fn init(&mut self, agent: AgentController) {
+    async fn init(&mut self, agent: AgentController) {
         self.agent = Some(agent);
+        if let Some(_) = self.shutdown {
+            return;
+        }
+
+        info!("Starting the web service");
+
+        let state = Arc::new(RwLock::new(HostState::new()));
+        let controller = self.agent.clone().unwrap();
+        let config = self.config.clone();
+        let (tx, rx) = oneshot::channel();
+
+        self.shutdown = Some(tx);
+
+        register_custom_metrics();
+
+        // Use a log wrapper to add metrics to all of the calls.
+        let log = warp::log::custom(|info| {
+            prom::INCOMING_REQUESTS.inc();
+            prom::RESPONSE_CODE_COLLECTOR
+                .with_label_values(&[
+                    "production",
+                    &info.status().as_str(),
+                    &info.method().to_string(),
+                ])
+                .inc();
+        });                
+
+        let library = Library::load_directory("./templates")
+            .await
+            .expect("template library to be created");
+
+        let api = agent_status(controller.clone())            
+            .or(filters::stop_agent(controller.clone()))
+            .or(filters::start_agent(controller.clone()))
+            .or(filters::start_job(controller.clone()))
+            .or(filters::list_jobs(controller.clone()))
+            .or(filters::templates(controller.clone(), state.clone(), library))
+            .or(filters::metrics())
+            .with(log);
+
+        let server = if let Some(tls) = config.tls {
+            warp::serve(api)
+                .tls()
+                .key_path(tls.private_key_path)
+                .cert_path(tls.certificate_path)
+        } else {
+            // Insecure stuff sucks
+            panic!("Web feature is not supported without TLS.")
+        };
+
+        info!(
+            "Spawning a webserver on {:?} {:?}",
+            config.bind_address, config.port
+        );
+
+        let (_, srv) =
+            server.bind_with_graceful_shutdown((config.bind_address, config.port), async {
+                rx.await.ok();
+            });
+
+        self.agent.as_ref().unwrap().agent.read().await.runtime.spawn(srv);        
     }
 
     fn name(&self) -> String {
         return format!("Web Feature (running on port {})", self.config.port).to_string();
     }
 
-    fn on_event(&mut self, event: AgentEvent) {
+    async fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
-                if let Some(_) = self.shutdown {
-                    return;
-                }
-
-                info!("Starting the web service");
-
-                let state = Arc::new(RwLock::new(HostState::new()));
-                let controller = self.agent.clone().unwrap();
-                let config = self.config.clone();
-                let (tx, rx) = oneshot::channel();
-
-                self.shutdown = Some(tx);
-
-                register_custom_metrics();
-
-                // Use a log wrapper to add metrics to all of the calls.
-                let log = warp::log::custom(|info| {
-                    prom::INCOMING_REQUESTS.inc();
-                    prom::RESPONSE_CODE_COLLECTOR
-                        .with_label_values(&[
-                            "production",
-                            &info.status().as_str(),
-                            &info.method().to_string(),
-                        ])
-                        .inc();
-                });
-
-                let mut hb = Handlebars::new();
-                
-                let paths = fs::read_dir("./templates").expect("Could not iterate templates");
-
-                for p in paths {
-                    let file = p.unwrap();
-                    let file_name = file.file_name();
-                    let file_name = file_name.to_str().unwrap();
-                    
-                    hb
-                        .register_template_file(file_name, file.path())
-                        .expect("load template file");
-                    info!("Registered template {}", file_name)
-                }
-
-                let hb = Arc::new(hb);
-                
-
-                let api = agent_status(controller.clone())
-                    .or(filters::stop_agent(controller.clone()))
-                    .or(filters::start_agent(controller.clone()))
-                    .or(filters::start_job(controller.clone()))
-                    .or(filters::list_jobs(controller.clone()))
-                    .or(filters::templates(controller.clone(), state.clone(), hb.clone()))
-                    .or(filters::metrics())
-                    .with(log);
-
-                let server = if let Some(tls) = config.tls {
-                    warp::serve(api)
-                        .tls()
-                        .key_path(tls.private_key_path)
-                        .cert_path(tls.certificate_path)
-                } else {
-                    // Insecure stuff sucks
-                    panic!("Web feature is not supported without TLS.")
-                };
-
-                info!(
-                    "Spawning a webserver on {:?} {:?}",
-                    config.bind_address, config.port
-                );
-
-                let (_, srv) =
-                    server.bind_with_graceful_shutdown((config.bind_address, config.port), async {
-                        rx.await.ok();
-                    });
-
-                controller.with_read(|f| {
-                    f.runtime.spawn(srv);
-                });
-
-                info!("Webservice spawned into another thread.");
+                info!("Got started signal");                
             }
             AgentEvent::Stopped => {
-                /*if let Some(signal) = self.shutdown.take() {
-                    info!("Stopping the web service");
-                    let _ = signal
-                        .send(())
-                        .map_err(|_err| anyhow!("Error sending signal to web service"));
-                }*/
+
                 info!("Got stop signal, keeping webservice running so the agent can be started again.")
             }
             AgentEvent::PayloadReceived(_payload) => {
@@ -217,6 +198,7 @@ mod test {
                     port: 3030,
                     tls: None,
                 }))
+                .await
                 .start()
                 .await;
             let signal = agent.signal.as_ref().unwrap().clone();

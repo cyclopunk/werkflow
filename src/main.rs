@@ -155,7 +155,7 @@ fn main() -> Result<()> {
                 let mut agent_c =
                     AgentController::with_runtime(&format!("{} - {}", &config.name, i), runtime);
 
-                agent_c.add_feature(WebFeature::new(web_config.clone()));
+                agent_c.add_feature(WebFeature::new(web_config.clone())).await;
 
                 channels.push(agent_c.start().await)
             }

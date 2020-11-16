@@ -1,7 +1,8 @@
 
 use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
-use log::{debug, info};
+use log::{debug, info, warn};
+use rand::Rng;
 use std::convert::Infallible;
 use std::{sync::Arc};
 use tokio::stream::StreamExt;
@@ -12,9 +13,9 @@ use werkflow_agents::{
     work::{Workload, WorkloadStatus},
     AgentCommand, AgentController,
 };
-use werkflow_scripting::{state::HostState, Script, ScriptHost};
+use werkflow_scripting::{state::HostState, Script, ScriptEngine};
 
-use crate::model;
+use crate::{rhtml::Library, model};
 
 pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
     use prometheus::Encoder;
@@ -51,7 +52,7 @@ pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
 }
 
 pub async fn print_status<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-    let agent = controller.agent.read();
+    let agent = controller.agent.read().await;
     Ok(format!(
         "{} The current status is: {:?}",
         agent.name,
@@ -63,7 +64,7 @@ pub async fn start_job<'a>(
     controller: AgentController,
     script: Script,
 ) -> Result<impl warp::Reply, Infallible> {
-    let mut agent = controller.agent.write();
+    let mut agent = controller.agent.write().await;
 
     let wl_handle = agent.run(Workload::with_script(controller.clone(), script));
 
@@ -105,7 +106,7 @@ pub async fn start_job<'a>(
 
 pub async fn list_jobs<'a>(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
     info!("Read lock on agent");
-    let work = controller.agent.read().work_handles.clone();
+    let work = controller.agent.read().await.work_handles.clone();
     info!("Got Read lock on agent");
     let mut vec: Vec<model::JobResult> = Vec::new();
 
@@ -127,23 +128,22 @@ pub async fn list_jobs<'a>(controller: AgentController) -> Result<impl warp::Rep
 }
 
 pub async fn stop_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-    let agent_arc = controller.agent.clone();
-    let mut agent = agent_arc.write();
+    let mut agent = controller.agent.write().await;
 
     agent.work_handles.clear();
 
-    agent.command(AgentCommand::Stop);
+    agent.command(AgentCommand::Stop).await;
 
     Ok(format!("The agent has been stopped."))
 }
 
 pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-    let _ = controller.agent.write().command(AgentCommand::Start);
+    let _ = controller.agent.write().await.command(AgentCommand::Start).await;
 
     Ok(format!("The agent has been started."))
 }
 
-pub async fn process_template<S, B>(
+pub async fn process_code_stream<S, B>(
     template_name: String,
     script: S,
     state: Arc<RwLock<HostState>>,
@@ -155,6 +155,8 @@ where
     B: warp::Buf,
 {
 
+    // Get the script from the input stream
+    
     let mut pinned_stream = Box::pin(script);
 
     let mut script_txt = String::new();
@@ -164,28 +166,96 @@ where
         script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
     }
 
-    let mut script_host = ScriptHost::with_default_plugins();
+    let mut script_engine = ScriptEngine::with_default_plugins();
+    
+    // lock the state so no other thread can update it while we're processing.
+    let mut state = state.write().await;
 
-    let host_state = state
-        .read()
-        .await
-        .clone();
+    script_engine.scope.push("state", state.clone());
 
-    script_host.scope.push("state", host_state);
-
-    let result = script_host
+    let result = script_engine
         .execute(Script::with_name(&template_name[..], &script_txt))
         .unwrap();
 
+        // update the state
+    *state = script_engine.scope.get_value("state").unwrap();
+
+    drop(state);
+
+    // Render the HTML
     let html = handlebars
         .render(&template_name, &result.underlying)
         .unwrap();
 
-    let mut state = state.write().await;
-
-    *state = script_host.scope.get_value("state").unwrap();
-
     Ok(Response::builder()
         .header("Content-Type", "text/html")
-        .body(ammonia::clean(&html)))
+        .body(ammonia::clean(&html))) // clean with ammonia to get rid of XSS and other potentially dangerous things
+}
+
+pub async fn process_template(
+    template_name: String,
+    state: Arc<RwLock<HostState>>,    
+    library: Library
+) -> Result<impl warp::Reply, Infallible>
+{
+
+    let mut hb = Handlebars::new();
+
+    let script_template = match library.get(&template_name) {
+        Ok(template) => {
+            template
+        }
+        Err(err) => {
+            warn!("Error getting template {}. Error: {}", template_name, err);
+            return Ok(Response::builder()
+            .status(404)
+            .body("Four Oh Four".to_string()));
+        }
+    };
+
+    if let Err(err) = hb.register_template_string(&template_name, &script_template.template) {
+        warn!("Error registering template {}\n Template:\n{}", err, script_template.template);
+        return Ok(Response::builder()
+        .status(500)
+        .body("We ain't found shit.".to_string()));
+    }
+    
+
+    let mut script_engine = ScriptEngine::with_default_plugins();
+    
+    // lock the state so no other thread can update it while we're processing.
+    let mut state = state.write().await;
+
+    script_engine.scope.push("state", state.clone());
+
+    let result = script_engine
+        .execute(script_template.script.clone());
+
+    match result {
+        Ok(result) => {
+            *state = script_engine.scope.get_value("state").unwrap();
+
+            drop(state);
+        
+            // Render the HTML
+            let html = hb
+                .render(&template_name, &result.underlying)
+                .unwrap();
+            
+            let clean_html = ammonia::clean(&html).clone();
+        
+            Ok(Response::builder()
+                .header("Content-Type", "text/html")
+                .body(clean_html)) // clean with ammonia to get rid of XSS and other potentially dangerous things
+        }
+        Err(err) => {
+            drop(state);
+
+            let error_id : u128 = rand::thread_rng().gen();
+            warn!("Error running script error: {}\n ErrorId: {} Script:\n{}", err, error_id, script_template.script.body);
+            return Ok(Response::builder()
+            .status(500)
+            .body(format!("You done f'd up. ErrorId: {}", error_id)));
+        }
+    }
 }

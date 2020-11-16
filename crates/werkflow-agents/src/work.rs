@@ -1,4 +1,4 @@
-use werkflow_scripting::ScriptHostPlugin;
+use werkflow_scripting::ScriptEnginePlugin;
 use crate::{cfg::AgentConfiguration, plugins};
 use crate::AsyncRunner;
 use itertools::Itertools;
@@ -22,7 +22,7 @@ use anyhow::{anyhow, Result};
 use std::fmt::{self, Display};
 use tokio::task::JoinHandle;
 use werkflow_scripting::{to_dynamic, Dynamic, ScriptResult};
-use werkflow_scripting::{EvalAltResult, RegisterFn, RegisterResultFn, Script, ScriptHost};
+use werkflow_scripting::{EvalAltResult, RegisterFn, RegisterResultFn, Script, ScriptEngine};
 
 #[derive(Default)]
 pub struct WorkloadHandle {
@@ -202,8 +202,8 @@ pub struct CommandHost {
 
 struct CommandHostPlugin;
 
-impl ScriptHostPlugin for CommandHostPlugin {
-    fn init(&self, host: &mut ScriptHost) { 
+impl ScriptEnginePlugin for CommandHostPlugin {
+    fn init(&self, host: &mut ScriptEngine) { 
        host.engine.register_type::<CommandHost>()
        .register_fn("configure", CommandHost::new_ch)
        .register_fn("configure_web", CommandHost::new_ch_web)
@@ -370,12 +370,12 @@ impl Workload {
     }
 
     pub async fn run(&self) -> Result<String> {
-        let mut script_host = ScriptHost::with_default_plugins();
+        let mut script_host = ScriptEngine::with_default_plugins();
 
         let _ = self
             .agent_handle
             .send(AgentEvent::WorkStarted(self.clone()))
-            .unwrap();
+            .await;
 
         script_host
             .add_plugin(CommandHostPlugin)

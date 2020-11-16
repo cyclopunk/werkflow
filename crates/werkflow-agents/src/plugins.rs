@@ -1,7 +1,7 @@
 pub mod http {
     use werkflow_scripting::{RegisterResultFn, to_dynamic};
     use werkflow_scripting::{Dynamic, EvalAltResult, Map};
-    use werkflow_scripting::ScriptHostPlugin;
+    use werkflow_scripting::ScriptEnginePlugin;
     use log::debug;
     use anyhow::{anyhow, Result};
 
@@ -9,8 +9,8 @@ pub mod http {
 
     pub(crate) struct Plugin;
 
-    impl ScriptHostPlugin for Plugin {
-        fn init(&self, host: &mut werkflow_scripting::ScriptHost) {
+    impl ScriptEnginePlugin for Plugin {
+        fn init(&self, host: &mut werkflow_scripting::ScriptEngine) {
             host.engine
                 .register_result_fn("get", get)
                 .register_result_fn("post", post)
