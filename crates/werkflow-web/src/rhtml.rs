@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::Path, str::FromStr,  fs};
 
-use log::{warn};
+use AsRef;
+use log::{info, warn};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, fs::File};
@@ -26,8 +27,11 @@ impl Library {
         }
     }
     pub async fn load_directory(path: impl AsRef<Path>) -> Result<Library> {
+        
+
         let mut lib = Library::default();
 
+        info!("Loading directory {} into script Library", path.as_ref().to_str().unwrap());
         let paths = fs::read_dir(path)?;
 
         for p in paths {
@@ -66,11 +70,12 @@ pub struct ScriptTemplate {
 ///   "result" : "This the result of the script",
 ///   "body" : state["request.body"]
 /// }
-/// !---
+/// ---!
 /// <div>Here's the result: {{result}}</div>
 /// <div>And you sent {{body}}</div>
 impl ScriptTemplate {
     pub async fn from_file(path: impl AsRef<Path>) -> Result<ScriptTemplate> {
+        info!("loading script template from file {}", path.as_ref().to_str().unwrap());
         let mut file = File::open(&path).await?;
         let mut contents = String::new();
         file.read_to_string(&mut contents).await?;
@@ -83,7 +88,8 @@ impl FromStr for ScriptTemplate {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let re = Regex::new(r"(?ms)\s*!---\n(.*)\s*---!\n(.*)").unwrap();
+        println!("{}",s);
+        let re = Regex::new(r"(?ms)\s*!---\r?\n(.*)\s*---!\r?\n(.*)").unwrap();
 
         let cap = re.captures(s);
 

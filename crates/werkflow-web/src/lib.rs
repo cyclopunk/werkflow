@@ -104,7 +104,7 @@ impl Feature for WebFeature {
                 .inc();
         });                
 
-        let library = Library::load_directory(&Path::new("./templates"))
+        let library = Library::load_directory("./templates")
             .await
             .expect("template library to be created");
 
