@@ -40,3 +40,4 @@ prometheus = "0.10.0"
 get_if_addrs = "0.5.3"
 itertools = "0.9.0"
 async-std = { version = "1.6.5", features = ["tokio02"]}
+async-trait = "0.1"

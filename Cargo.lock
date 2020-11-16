@@ -4074,6 +4074,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-std",
+ "async-trait",
  "config",
  "crossbeam-channel 0.5.0",
  "custom_error",
@@ -4210,6 +4211,7 @@ dependencies = [
  "ammonia",
  "anyhow",
  "async-std",
+ "async-trait",
  "config",
  "crossbeam-channel 0.5.0",
  "custom_error",
@@ -4221,6 +4223,7 @@ dependencies = [
  "pretty_env_logger",
  "prometheus",
  "rand 0.7.3",
+ "regex",
  "reqwest",
  "serde 1.0.117",
  "serde_json",

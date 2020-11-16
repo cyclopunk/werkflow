@@ -35,8 +35,8 @@ impl Into<ScriptIdentifier> for &str {
 }
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct Script {
-    identifier: ScriptIdentifier,
-    body: String,
+    pub identifier: ScriptIdentifier,
+    pub body: String,
 }
 
 impl Script {

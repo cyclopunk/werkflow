@@ -21,6 +21,7 @@ use tokio::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 use work::{Workload, WorkloadHandle, WorkloadStatus};
 
+use async_trait::async_trait;
 pub mod cfg;
 pub mod comm;
 pub mod prom;
@@ -393,8 +394,9 @@ pub enum AgentMessage {
     Start,
     Do(&'static str),
 }
+#[async_trait]
 pub trait Feature: Send + Sync {
     fn init(&mut self, agent: AgentController);
-    fn on_event(&mut self, event: AgentEvent);
+    async fn on_event(&mut self, event: AgentEvent);
     fn name(&self) -> String;
 }

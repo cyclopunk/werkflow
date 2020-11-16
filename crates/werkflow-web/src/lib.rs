@@ -1,10 +1,11 @@
 use handlebars::Handlebars;
-use std::{net::Ipv4Addr, sync::Arc, fs};
+use rhtml::Library;
+use std::{fs, net::Ipv4Addr, sync::Arc, path::Path};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
 use werkflow_scripting::state::HostState;
-
+use async_trait::async_trait;
 
 
 use log::info;
@@ -24,6 +25,7 @@ pub mod model;
 
 mod filters;
 mod handlers;
+mod rhtml;
 
 pub struct WebFeature {
     config: WebConfiguration,
@@ -71,6 +73,7 @@ impl ConfigDefinition for WebConfiguration {}
 
 impl ConfigDefinition for TlsConfiguration {}
 
+#[async_trait]
 impl Feature for WebFeature {
     fn init(&mut self, agent: AgentController) {
         self.agent = Some(agent);
@@ -80,7 +83,7 @@ impl Feature for WebFeature {
         return format!("Web Feature (running on port {})", self.config.port).to_string();
     }
 
-    fn on_event(&mut self, event: AgentEvent) {
+    async fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
                 if let Some(_) = self.shutdown {
@@ -108,32 +111,18 @@ impl Feature for WebFeature {
                             &info.method().to_string(),
                         ])
                         .inc();
-                });
+                });                
 
-                let mut hb = Handlebars::new();
-                
-                let paths = fs::read_dir("./templates").expect("Could not iterate templates");
-
-                for p in paths {
-                    let file = p.unwrap();
-                    let file_name = file.file_name();
-                    let file_name = file_name.to_str().unwrap();
-                    
-                    hb
-                        .register_template_file(file_name, file.path())
-                        .expect("load template file");
-                    info!("Registered template {}", file_name)
-                }
-
-                let hb = Arc::new(hb);
-                
+                let library = Library::load_directory(&Path::new("./templates"))
+                    .await
+                    .expect("template library to be created");
 
                 let api = agent_status(controller.clone())
                     .or(filters::stop_agent(controller.clone()))
                     .or(filters::start_agent(controller.clone()))
                     .or(filters::start_job(controller.clone()))
                     .or(filters::list_jobs(controller.clone()))
-                    .or(filters::templates(controller.clone(), state.clone(), hb.clone()))
+                    .or(filters::templates(controller.clone(), state.clone(), library))
                     .or(filters::metrics())
                     .with(log);
 

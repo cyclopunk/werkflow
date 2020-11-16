@@ -14,7 +14,7 @@ use werkflow_agents::{
 };
 use werkflow_scripting::{state::HostState, Script, ScriptEngine};
 
-use crate::model;
+use crate::{rhtml::Library, model};
 
 pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
     use prometheus::Encoder;
@@ -143,7 +143,7 @@ pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply
     Ok(format!("The agent has been started."))
 }
 
-pub async fn process_template<S, B>(
+pub async fn process_code_stream<S, B>(
     template_name: String,
     script: S,
     state: Arc<RwLock<HostState>>,
@@ -166,28 +166,64 @@ where
         script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
     }
 
-    let mut script_host = ScriptEngine::with_default_plugins();
+    let mut script_engine = ScriptEngine::with_default_plugins();
+    
+    // lock the state so no other thread can update it while we're processing.
+    let mut state = state.write().await;
 
-    let host_state = state
-        .read()
-        .await
-        .clone();
+    script_engine.scope.push("state", state.clone());
 
-    script_host.scope.push("state", host_state);
-
-    let result = script_host
+    let result = script_engine
         .execute(Script::with_name(&template_name[..], &script_txt))
         .unwrap();
 
+        // update the state
+    *state = script_engine.scope.get_value("state").unwrap();
+
+    drop(state);
+
+    // Render the HTML
     let html = handlebars
         .render(&template_name, &result.underlying)
         .unwrap();
 
-    let mut state = state.write().await;
-
-    *state = script_host.scope.get_value("state").unwrap();
-
     Ok(Response::builder()
         .header("Content-Type", "text/html")
-        .body(ammonia::clean(&html)))
+        .body(ammonia::clean(&html))) // clean with ammonia to get rid of XSS and other potentially dangerous things
+}
+
+pub async fn process_template(
+    template_name: String,
+    state: Arc<RwLock<HostState>>,    
+    library: Library
+) -> Result<impl warp::Reply, Infallible>
+{
+
+    let mut hb = Handlebars::new();
+/*
+    let mut script_engine = ScriptEngine::with_default_plugins();
+    
+    // lock the state so no other thread can update it while we're processing.
+    let mut state = state.write().await;
+
+    script_engine.scope.push("state", state.clone());
+
+    let result = script_engine
+        .execute(Script::with_name(&template_name[..], &script_txt))
+        .unwrap();
+
+        // update the state
+    *state = script_engine.scope.get_value("state").unwrap();
+
+    drop(state);
+
+    // Render the HTML
+    let html = handlebars
+        .render(&template_name, &result.underlying)
+        .unwrap();
+*/
+    let html = "";
+    Ok(Response::builder()
+        .header("Content-Type", "text/html")
+        .body(ammonia::clean(&html))) // clean with ammonia to get rid of XSS and other potentially dangerous things
 }
