@@ -1,7 +1,6 @@
-use std::{collections::HashMap, path::Path, str::FromStr, string::ParseError, fs};
+use std::{collections::HashMap, path::Path, str::FromStr,  fs};
 
-use handlebars::Template;
-use log::{info, warn};
+use log::{warn};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::{io::AsyncReadExt, fs::File};
@@ -16,6 +15,16 @@ pub struct Library {
 }
 
 impl Library {
+    pub fn get(&self, name : &str) -> Result<ScriptTemplate> {
+        match self.lib.get(name) {
+            Some(script) => {
+                Ok(script.clone())
+            }
+            None => {
+                Err(anyhow!("Could not load script"))
+            }
+        }
+    }
     pub async fn load_directory(path: impl AsRef<Path>) -> Result<Library> {
         let mut lib = Library::default();
 
@@ -35,7 +44,7 @@ impl Library {
                         lib.lib.insert(template_name.into(), script);
                     }
                     Err(err) => {
-                        warn!("Could ot load script into library. name: {} error: {}", template_name, err);
+                        warn!("Couldn't load script into library. name: {} error: {}", template_name, err);
                     }
                 }
             }
@@ -48,8 +57,8 @@ impl Library {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptTemplate {
     source: String,
-    script: Script,
-    template: String
+    pub script: Script,
+    pub template: String
 }
 /// rhtml templates take the form
 /// ---!

@@ -375,7 +375,7 @@ impl Workload {
         let _ = self
             .agent_handle
             .send(AgentEvent::WorkStarted(self.clone()))
-            .unwrap();
+            .await;
 
         script_host
             .add_plugin(CommandHostPlugin)
