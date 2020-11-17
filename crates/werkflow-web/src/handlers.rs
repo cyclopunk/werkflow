@@ -167,6 +167,8 @@ where
     }
 
     let mut script_engine = ScriptEngine::with_default_plugins();
+
+    script_engine.add_plugin(werkflow_agents::plugins::http::Plugin);
     
     // lock the state so no other thread can update it while we're processing.
     let mut state = state.write().await;
@@ -222,6 +224,7 @@ pub async fn process_template(
     
 
     let mut script_engine = ScriptEngine::with_default_plugins();
+    script_engine.add_plugin(werkflow_agents::plugins::http::Plugin);
     
     // lock the state so no other thread can update it while we're processing.
     let mut state = state.write().await;

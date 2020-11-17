@@ -7,7 +7,7 @@ pub mod http {
 
     use crate::{threads::AsyncRunner, work::SerMap};
 
-    pub(crate) struct Plugin;
+    pub struct Plugin;
 
     impl ScriptEnginePlugin for Plugin {
         fn init(&self, host: &mut werkflow_scripting::ScriptEngine) {
