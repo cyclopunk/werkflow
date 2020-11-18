@@ -89,6 +89,12 @@ impl Feature for WebFeature {
         let config = self.config.clone();
         let (tx, rx) = oneshot::channel();
 
+        let (watcher, rx2, library) = Library::watch_directory("./templates")
+        .await
+        .expect("template library to be created");
+
+        let library = Arc::new(RwLock::new(library));
+        
         self.shutdown = Some(tx);
 
         register_custom_metrics();
@@ -105,18 +111,14 @@ impl Feature for WebFeature {
                 .inc();
         });                
 
-        let (watcher, rx2, library) = Library::watch_directory("./templates")
-            .await
-            .expect("template library to be created");
-
-        let threadsafe_lib = Arc::new(RwLock::new(library));
+       
 
         let api = agent_status(controller.clone())            
             .or(filters::stop_agent(controller.clone()))
             .or(filters::start_agent(controller.clone()))
             .or(filters::start_job(controller.clone()))
             .or(filters::list_jobs(controller.clone()))
-            .or(filters::templates(controller.clone(), state.clone(), threadsafe_lib.clone()))
+            .or(filters::templates(controller.clone(), state.clone(), library.clone()))
             .or(filters::metrics())
             .with(log);
 
@@ -144,7 +146,7 @@ impl Feature for WebFeature {
         rt.spawn(async move {
             // move the watcher here so the channel stays alive.
             let watcher = watcher;
-            let lib = threadsafe_lib.clone();
+            let lib = library.clone();
             loop {
                 let x = rx2.recv();
                 match x {
