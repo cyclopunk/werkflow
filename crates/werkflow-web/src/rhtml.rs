@@ -29,6 +29,13 @@ impl Library {
             }
         }
     }
+    pub fn rename(&mut self, name: &str, new_name: &str) {
+        let script = self.lib.remove(name).unwrap();
+        self.lib.insert(new_name.into(), script);
+    }
+    pub fn remove(&mut self, name: &str) {
+        self.lib.remove(name);
+    }
     pub async fn update_from_file(&mut self, path: impl AsRef<Path>) {
         let path = &path.as_ref().to_path_buf();
         let file_name = path.file_name().unwrap().to_str().unwrap();

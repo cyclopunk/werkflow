@@ -9,7 +9,7 @@ use werkflow_scripting::state::HostState;
 use async_trait::async_trait;
 
 
-use log::info;
+use log::{info, warn};
 use tokio::sync::oneshot::{self, Sender};
 
 //use handlebars::Handlebars;
@@ -36,11 +36,11 @@ pub struct WebFeature {
 
 impl<'a> WebFeature {
     pub fn new(config: impl ConfigDefinition + Serialize) -> FeatureHandle {
-        FeatureHandle::new(WebFeature {
+        Arc::new(RwLock::new(WebFeature {
             config: WebConfiguration::merge(config).expect("To merge configs"),
             shutdown: None,
             agent: None,
-        })
+        }))
     }
 }
 
@@ -111,7 +111,6 @@ impl Feature for WebFeature {
 
         let threadsafe_lib = Arc::new(RwLock::new(library));
 
-
         let api = agent_status(controller.clone())            
             .or(filters::stop_agent(controller.clone()))
             .or(filters::start_agent(controller.clone()))
@@ -140,7 +139,9 @@ impl Feature for WebFeature {
             server.bind_with_graceful_shutdown((config.bind_address, config.port), async {
                 rx.await.ok();
             });
-        self.agent.as_ref().unwrap().agent.read().await.runtime.spawn(async move {
+        let rt = &self.agent.as_ref().unwrap().agent.read().await.runtime;
+
+        rt.spawn(async move {
             // move the watcher here so the channel stays alive.
             let watcher = watcher;
             let lib = threadsafe_lib.clone();
@@ -157,20 +158,46 @@ impl Feature for WebFeature {
                             DebouncedEvent::NoticeRemove(_) => {}
                             DebouncedEvent::Create(_) => {}
                             DebouncedEvent::Chmod(_) => {}
-                            DebouncedEvent::Remove(_) => {}
-                            DebouncedEvent::Rename(_, _) => {}
+                            DebouncedEvent::Remove(file) => {
+                                let name = file.as_path()
+                                    .file_stem()
+                                    .unwrap()
+                                    .to_string_lossy();
+                                
+                                let mut writer = lib.write().await;
+
+                                writer.remove(name.as_ref());
+                            }
+                            DebouncedEvent::Rename(from_path, to_path) => {
+                                let from_name = from_path.as_path()
+                                .file_stem()
+                                .unwrap()
+                                .to_string_lossy();
+
+                                let to_name = to_path.as_path()
+                                .file_stem()
+                                .unwrap()
+                                .to_string_lossy();
+
+                                let mut writer = lib.write().await;
+
+                                writer.rename(from_name.as_ref(), 
+                                to_name.as_ref());
+                            }
                             DebouncedEvent::Rescan => {}
-                            DebouncedEvent::Error(_, _) => {}
+                            DebouncedEvent::Error(err, path) => {
+                                warn!("Error scanning file: {} for path {:?}", err, path);
+                            }
                         }
                     },
                     Err(e) => {
-                        println!("watch error: {}", e.to_string());
+                        warn!("watch error: {}", e.to_string());
                         break;
                     },
                  }
             }
         });
-        self.agent.as_ref().unwrap().agent.read().await.runtime.spawn(srv);        
+        rt.spawn(srv);        
     }
 
     fn name(&self) -> String {
@@ -184,7 +211,7 @@ impl Feature for WebFeature {
             }
             AgentEvent::Stopped => {
 
-                info!("Got stop signal, keeping webservice running so the agent can be started again.")
+                info!("Got stop signal")
             }
             AgentEvent::PayloadReceived(_payload) => {
                 // todo
@@ -210,6 +237,7 @@ mod test {
     use tokio::runtime::Builder;
 
     #[test]
+    #[ignore]
     fn web_test() {
         std::env::set_var("RUST_LOG", "trace");
 

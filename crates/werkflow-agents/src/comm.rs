@@ -1,8 +1,9 @@
-use crate::{work::Workload, WorkloadData};
+use crate::{work::Workload};
 use core::fmt::Display;
-use std::collections::HashMap;
+use std::{sync::Arc, collections::HashMap};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub enum AgentEvent {
@@ -11,7 +12,7 @@ pub enum AgentEvent {
     PayloadReceived(String),
     WorkStarted(Workload),
     WorkErrored(String),
-    WorkComplete(WorkloadData),
+    WorkComplete(Workload),
 }
 
 impl Display for AgentEvent {
@@ -55,10 +56,10 @@ impl<T> Hub<T>
 where
     T: Send + Sync + Clone,
 {
-    pub fn new() -> Hub<T> {
-        Hub {
+    pub fn new() -> Arc<RwLock<Hub<T>>> {
+        Arc::new(RwLock::new(Hub {
             channels: HashMap::new(),
-        }
+        }))
     }
     pub fn new_channel(&mut self, name: &str) -> ChannelPair<T> {
         let (s, r) = unbounded::<T>();

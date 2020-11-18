@@ -17,12 +17,12 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Seriali
 use std::{collections::HashMap, process::Command};
 use werkflow_scripting::Map;
 
-use crate::{comm::AgentEvent, AgentController, WorkloadData};
+use crate::{comm::AgentEvent, AgentController};
 use anyhow::{anyhow, Result};
 use std::fmt::{self, Display};
 use tokio::task::JoinHandle;
-use werkflow_scripting::{to_dynamic, Dynamic, ScriptResult};
-use werkflow_scripting::{EvalAltResult, RegisterFn, RegisterResultFn, Script, ScriptEngine};
+use werkflow_scripting::{ Dynamic, ScriptResult};
+use werkflow_scripting::{ RegisterFn, Script, ScriptEngine};
 
 #[derive(Default)]
 pub struct WorkloadHandle {
@@ -83,12 +83,6 @@ impl Display for WorkloadStatus {
 impl Default for WorkloadStatus {
     fn default() -> Self {
         WorkloadStatus::None
-    }
-}
-
-impl Into<WorkloadData> for ScriptResult {
-    fn into(self) -> WorkloadData {
-        self.to::<WorkloadData>().unwrap()
     }
 }
 

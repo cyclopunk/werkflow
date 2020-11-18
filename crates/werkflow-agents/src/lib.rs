@@ -47,7 +47,7 @@ impl<'a> Default for Agent {
             runtime: Runtime::new().unwrap(),
             state: AgentState::Stopped,
             work_handles: Vec::default(),
-            hub: Arc::new(RwLock::new(Hub::new())),
+            hub: Hub::new(),
         };
 
         agt
@@ -168,11 +168,10 @@ impl AgentController {
 
         info!("Feature count: {}", agent.features.len());
         for f in &agent.features {
-            let handle = agent.runtime.handle().clone();
-            let feature_name = f.handle.read().await.name();
+            let feature_name = f.read().await.name();
             let (rx, tx) = self.get_channel(AGENT_CHANNEL).await;
 
-            f.handle.write().await.init(self.clone()).await;
+            f.write().await.init(self.clone()).await;
 
             let feature_handle = f.clone();
             agent.runtime.spawn(async move {
@@ -187,7 +186,7 @@ impl AgentController {
                     if let Ok(message) = message {
                         info!("Got AgentEvent {}", message);
 
-                        let mut feature = fh.handle.write().await;
+                        let mut feature = fh.write().await;
 
                         feature.on_event(message.clone()).await;
 
@@ -219,11 +218,8 @@ impl AgentController {
         tx
     }
 }
-#[derive(Clone)]
-pub struct FeatureHandle {
-    handle: Arc<tokio::sync::RwLock<dyn Feature>>,
-}
 
+/*
 impl FeatureHandle {
     pub fn new<T>(feature: T) -> FeatureHandle
     where
@@ -248,14 +244,15 @@ impl<'a> FeatureHandle {
     {
         callback(&self.handle.read().await);
     }
-}
+}*/
 
+type HubHandle = Arc<RwLock<Hub<AgentEvent>>>;
 pub struct Agent {
     pub name: String,
     pub features: Vec<FeatureHandle>,
     pub state: AgentState,
     pub runtime: Runtime,
-    pub hub: Arc<RwLock<Hub<AgentEvent>>>,
+    pub hub: HubHandle,
     pub work_handles: Vec<Arc<tokio::sync::RwLock<WorkloadHandle>>>,
 }
 
@@ -273,13 +270,14 @@ impl Agent {
             runtime: runtime,
             state: AgentState::Stopped,
             work_handles: Vec::default(),
-            hub: Arc::new(RwLock::new(Hub::new())),
+            hub: Hub::new(),
         }
     }
     pub fn status(&self) -> AgentState {
         self.state
     }
 
+    /// Run a command on the agent.
     pub async fn command(&mut self, cmd: AgentCommand) {
         let channel = self.hub.write().await.get_or_create(AGENT_CHANNEL);
         match cmd {
@@ -381,15 +379,9 @@ impl Agent {
         work_handle
     }
 }
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct WorkloadData {
-    pub result: String,
-}
-pub enum AgentMessage {
-    Stop,
-    Start,
-    Do(&'static str),
-}
+
+
+pub type FeatureHandle = Arc<tokio::sync::RwLock<dyn Feature>>;
 #[async_trait]
 pub trait Feature: Send + Sync {
     async fn init(&mut self, agent: AgentController);

@@ -3,6 +3,7 @@ use std::future::Future;
 
 pub struct AsyncRunner;
 
+/// Helper methods for running async tasks in the tokio runtime.
 impl AsyncRunner {
     pub fn block_on<'a, F: Future + Send + 'static>(f: F) -> F::Output
     where
