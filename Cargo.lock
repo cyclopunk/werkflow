@@ -4249,6 +4249,7 @@ dependencies = [
  "tokio-test",
  "werkflow-config",
  "werkflow-core",
+ "werkflow-scripting",
 ]
 
 [[package]]
@@ -4303,6 +4304,7 @@ dependencies = [
  "werkflow-agents",
  "werkflow-config",
  "werkflow-core",
+ "werkflow-datalayer",
  "werkflow-scripting",
 ]
 

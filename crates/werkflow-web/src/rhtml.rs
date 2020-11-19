@@ -12,6 +12,8 @@ use werkflow_scripting::Script;
 
 use anyhow::{Result, anyhow};
 
+use crate::handlers;
+
 #[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Library {
     preamble: String,
@@ -45,6 +47,11 @@ impl Library {
             match ScriptTemplate::from_file(path).await {
                 Ok(mut script) => {
                     script.source = file_name.to_string();
+                    
+                    let mut tmp = handlers::TEMPLATES.write().await;
+                  
+                    tmp.register_template_string(template_name.into(), &script.template).unwrap();
+
                     self.lib.insert(template_name.into(), script);
                 }
                 Err(err) => {
@@ -94,6 +101,7 @@ impl Library {
                 match ScriptTemplate::from_file(file.path()).await {
                     Ok(mut script) => {
                         script.source = file_name.to_string();
+                        
                         lib.lib.insert(template_name.into(), script);
                     }
                     Err(err) => {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bollard::container::{Config, CreateContainerOptions, StartContainerOptions};
+use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions};
 use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, PortBinding, PortMap};
 use bollard::{ClientVersion, Docker};
@@ -18,6 +18,23 @@ pub struct ContainerService {
 }
 
 impl ContainerService {
+    pub async fn has_container(&self, name : &str) -> bool {
+        
+        let mut filters = HashMap::new();
+        filters.insert("name", vec!(name));
+        
+        let containers = self.docker.list_containers(Some(ListContainersOptions {
+            all: true,
+            filters: filters,
+            ..Default::default()
+        })).await;
+
+        if let Ok(c) = containers {
+          c.len() > 0
+        } else {
+          false
+        }
+    }
     pub async fn connect_with_ssl(
         url: &str,
         ssl_key: &Path,

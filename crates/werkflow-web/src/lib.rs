@@ -1,7 +1,7 @@
 use handlebars::Handlebars;
 use notify::DebouncedEvent;
 use rhtml::Library;
-use std::{fs, net::Ipv4Addr, sync::Arc, path::Path};
+use std::{fs, net::Ipv4Addr, path::Path, sync::Arc, path::PathBuf};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
@@ -46,6 +46,7 @@ impl<'a> WebFeature {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WebConfiguration {
+    pub template_directory: PathBuf,
     pub bind_address: Ipv4Addr,
     pub port: u16,
     pub tls: Option<TlsConfiguration>,
@@ -60,6 +61,7 @@ pub struct TlsConfiguration {
 impl Default for WebConfiguration {
     fn default() -> Self {
         WebConfiguration {
+            template_directory: "./templates".into(),
             bind_address: "127.0.0.1".parse().unwrap(),
             port: 3030,
             tls: Some(TlsConfiguration {
@@ -89,12 +91,12 @@ impl Feature for WebFeature {
         let config = self.config.clone();
         let (tx, rx) = oneshot::channel();
 
-        let (watcher, rx2, library) = Library::watch_directory("./templates")
-        .await
-        .expect("template library to be created");
+        let (watcher, rx2, library) = Library::watch_directory(config.template_directory)
+            .await
+            .expect("template library to be created");
 
         let library = Arc::new(RwLock::new(library));
-        
+
         self.shutdown = Some(tx);
 
         register_custom_metrics();
@@ -143,9 +145,11 @@ impl Feature for WebFeature {
             });
         let rt = &self.agent.as_ref().unwrap().agent.read().await.runtime;
 
+        // watch the files in the templat directory and modify the library when they change.
+
         rt.spawn(async move {
             // move the watcher here so the channel stays alive.
-            let watcher = watcher;
+            let _watcher = watcher;
             let lib = library.clone();
             loop {
                 let x = rx2.recv();
@@ -257,6 +261,7 @@ mod test {
         handle.block_on(async move {
             let chan = agent
                 .add_feature(WebFeature::new(WebConfiguration {
+                    template_directory: "./templates".into(),
                     bind_address: "127.0.0.1".parse().unwrap(),
                     port: 3030,
                     tls: None,

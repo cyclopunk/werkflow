@@ -9,6 +9,7 @@ edition = "2018"
 
 werkflow-config = {path = "../werkflow-config/"}
 werkflow-core = {path = "../werkflow-core/"}
+werkflow-scripting = {path = "../werkflow-scripting/"}
 
 serde = {version = "1.0.116", features = ["rc"]}
 serde_json = "1.0.59"

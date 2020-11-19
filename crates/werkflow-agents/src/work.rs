@@ -14,7 +14,7 @@ use werkflow_scripting::{Array, ImmutableString};
 use log::{error, trace};
 use rand::Rng;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer};
-use std::{collections::HashMap, process::Command};
+use std::{collections::HashMap, process::Command, time::Duration, thread};
 use werkflow_scripting::Map;
 
 use crate::{comm::AgentEvent, AgentController};
@@ -194,7 +194,7 @@ pub struct CommandHost {
     config: AgentConfiguration,
 }
 
-struct CommandHostPlugin;
+pub struct CommandHostPlugin;
 
 impl ScriptEnginePlugin for CommandHostPlugin {
     fn init(&self, host: &mut ScriptEngine) { 
@@ -202,9 +202,11 @@ impl ScriptEnginePlugin for CommandHostPlugin {
        .register_fn("configure", CommandHost::new_ch)
        .register_fn("configure_web", CommandHost::new_ch_web)
        .register_fn("add_record", CommandHost::add_a_record)
+       .register_fn("has_container", CommandHost::has_container)
        .register_fn("start_container", CommandHost::start_container)
        .register_fn("create_container", CommandHost::create_container)
-       .register_fn("ip", CommandHost::get_ip);
+       .register_fn("ip", CommandHost::get_ip)
+       .register_fn("wait", CommandHost::wait);
     }
 }
 
@@ -219,6 +221,9 @@ impl CommandHost {
             config: config.unwrap(),
         }
     }
+    fn wait (secs: i64) {
+        thread::sleep(Duration::from_millis(secs as u64));
+    }
     fn new_ch_web(url: ImmutableString) -> CommandHost {
         let config = AsyncRunner::block_on(async move {
             read_config(ConfigSource::Http(HttpAction::Get(url.into()))).await
@@ -226,6 +231,16 @@ impl CommandHost {
         CommandHost {
             config: config.unwrap(),
         }
+    }
+    fn has_container(&mut self, name: &str) -> bool {
+        let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
+        let n = name.to_string();
+        AsyncRunner::block_on(async move {
+            s.has_container(
+                &n  
+            )
+            .await
+        })
     }
     fn create_container(&mut self, name: ImmutableString, image: ImmutableString, env: Array) {
         let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());

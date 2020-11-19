@@ -1,4 +1,8 @@
 
+use serde_json::Value;
+use werkflow_scripting::to_dynamic;
+use werkflow_agents::work::CommandHostPlugin;
+use werkflow_datalayer::cache::RemoteStoragePlugin;
 use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
 use log::{debug, info, warn};
@@ -7,13 +11,11 @@ use std::convert::Infallible;
 use std::{sync::Arc};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
-use warp::Reply;
+use warp::{Buf, Reply, hyper::body::Bytes};
 use warp::{Rejection, Stream, http::Response};
-use werkflow_agents::{
-    work::{Workload, WorkloadStatus},
-    AgentCommand, AgentController,
-};
-use werkflow_scripting::{state::HostState, Script, ScriptEngine};
+use werkflow_agents::{AgentCommand, AgentController, plugins::http, work::{Workload, WorkloadStatus}};
+use werkflow_scripting::{RegisterFn, Script, ScriptEngine, state::HostState};
+use lazy_static::lazy_static;
 
 use crate::{rhtml::Library, model};
 
@@ -142,66 +144,33 @@ pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply
 
     Ok(format!("The agent has been started."))
 }
-
-pub async fn process_code_stream<S, B>(
-    template_name: String,
-    script: S,
-    state: Arc<RwLock<HostState>>,
-    handlebars: Arc<handlebars::Handlebars<'_>>
-) -> Result<impl warp::Reply, Infallible>
-where
-    S: Stream<Item = Result<B, warp::Error>>,
-    S: StreamExt,
-    B: warp::Buf,
-{
-
-    // Get the script from the input stream
-    
-    let mut pinned_stream = Box::pin(script);
-
-    let mut script_txt = String::new();
-
-    while let Some(item) = pinned_stream.next().await {
-        let mut data = item.unwrap();
-        script_txt.push_str(&String::from_utf8(data.to_bytes().as_ref().to_vec()).unwrap());
-    }
-
-    let mut script_engine = ScriptEngine::with_default_plugins();
-
-    script_engine.add_plugin(werkflow_agents::plugins::http::Plugin);
-    
-    // lock the state so no other thread can update it while we're processing.
-    let mut state = state.write().await;
-
-    script_engine.scope.push("state", state.clone());
-
-    let result = script_engine
-        .execute(Script::with_name(&template_name[..], &script_txt))
-        .unwrap();
-
-        // update the state
-    *state = script_engine.scope.get_value("state").unwrap();
-
-    drop(state);
-
-    // Render the HTML
-    let html = handlebars
-        .render(&template_name, &result.underlying)
-        .unwrap();
-
-    Ok(Response::builder()
-        .header("Content-Type", "text/html")
-        .body(ammonia::clean(&html))) // clean with ammonia to get rid of XSS and other potentially dangerous things
+lazy_static! {
+    pub static ref ENGINE : RwLock<ScriptEngine<'static>> = {
+        let mut s = ScriptEngine::with_default_plugins();
+        s.add_plugin(http::Plugin)
+        .add_plugin(RemoteStoragePlugin)
+        .add_plugin(CommandHostPlugin);
+        RwLock::new(s)
+    };
+    pub static ref TEMPLATES: RwLock<Handlebars<'static>> = {
+        RwLock::new(Handlebars::new())
+    };
 }
 
 pub async fn process_template(
     template_name: String,
+    body : Bytes,
     state: Arc<RwLock<HostState>>,    
-    library: Arc<RwLock<Library>>
+    library: Arc<RwLock<Library>>,
+    content_type: String
 ) -> Result<impl warp::Reply, Infallible>
 {
 
-    let mut hb = Handlebars::new();
+    let mut engine = ScriptEngine::with_default_plugins();
+    
+    engine.add_plugin(http::Plugin)
+        .add_plugin(RemoteStoragePlugin)
+        .add_plugin(CommandHostPlugin);
 
     let script_template = match library.read().await.get(&template_name) {
         Ok(template) => {
@@ -214,42 +183,59 @@ pub async fn process_template(
             .body("Four Oh Four".to_string()));
         }
     };
+    let mut template_writer =  TEMPLATES.write().await;
 
-    if let Err(err) = hb.register_template_string(&template_name, &script_template.template) {
-        warn!("Error registering template {}\n Template:\n{}", err, script_template.template);
-        return Ok(Response::builder()
-        .status(500)
-        .body("We ain't found shit.".to_string()));
+    if !template_writer.has_template(&template_name) {
+        if let Err(err) = template_writer.register_template_string(&template_name, &script_template.template) {
+            warn!("Error registering template {}\n Template:\n{}", err, script_template.template);
+            return Ok(Response::builder()
+            .status(500)
+            .body("We ain't found shit.".to_string()));
+        }
     }
     
-
-    let mut script_engine = ScriptEngine::with_default_plugins();
-    script_engine.add_plugin(werkflow_agents::plugins::http::Plugin);
-    
+    drop(template_writer);
     // lock the state so no other thread can update it while we're processing.
     let mut state = state.write().await;
+    
+    let bytes = body.bytes().to_vec();
 
-    script_engine.scope.push("state", state.clone());
+    let body = std::str::from_utf8(&bytes).expect("error converting bytes to &str").to_string();
+    
+    engine.scope.push("state", state.clone());
+    engine.engine.on_var(move |name,_,_| {
+        if name == "body" {
+            let json : Value = serde_json::from_str(&body.clone()).unwrap();
+            return Ok(Some(to_dynamic(json).unwrap()));
+        }
+        Ok(None)
+    });
+    // can clean with ammonia to get rid of XSS and other potentially dangerous things
+    /*match &content_type[..] {
+        "application/json" => engine.scope.push("body", Arc::new(to_dynamic(body).unwrap())),
+        _ => engine.scope.push("body", String::from( ammonia::clean(body)))
+    };*/
+    
+    let result = engine
 
-    let result = script_engine
         .execute(script_template.script.clone());
 
     match result {
         Ok(result) => {
-            *state = script_engine.scope.get_value("state").unwrap();
+            *state = engine.scope.get_value("state").unwrap();
 
             drop(state);
         
             // Render the HTML
-            let html = hb
+            let html = TEMPLATES.read().await
                 .render(&template_name, &result.underlying)
                 .unwrap();
             
-            let clean_html = ammonia::clean(&html).clone();
+            //let clean_html = ammonia::clean(&html).clone();
         
             Ok(Response::builder()
                 .header("Content-Type", "text/html")
-                .body(clean_html)) // clean with ammonia to get rid of XSS and other potentially dangerous things
+                .body(html)) 
         }
         Err(err) => {
             drop(state);

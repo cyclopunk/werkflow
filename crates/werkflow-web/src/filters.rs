@@ -79,8 +79,10 @@ pub fn templates<'a>(
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone + 'a {
     warp::path!("content" / String)
         .and(warp::any())
+        .and(warp::filters::body::bytes())
         .and(with_state(state))
         .and(with_library(library.clone()))
+        .and(warp::header::<String>("content-type"))
         .and_then(handlers::process_template)
 }
 

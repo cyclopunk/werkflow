@@ -19,7 +19,7 @@ use cdrs::cluster::{ClusterTcpConfig, NodeTcpConfigBuilder};
 use cdrs::load_balancing::RoundRobin;
 use cdrs::query::*;
 
-mod cache;
+pub mod cache;
 mod database;
 
 #[path = "events/amqp.rs"]

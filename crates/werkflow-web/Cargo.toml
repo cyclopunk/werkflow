@@ -11,6 +11,7 @@ werkflow-agents = {path = "../werkflow-agents"}
 werkflow-core = {path = "../werkflow-core"}
 werkflow-scripting = { path = "../werkflow-scripting"}
 werkflow-config = { path = "../werkflow-config"}
+werkflow-datalayer = { path = "../werkflow-datalayer"}
 
 serde = {version = "1.0.117", features = ["rc"]}
 serde_json = "1.0.59"
