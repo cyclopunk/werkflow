@@ -3,7 +3,7 @@ pub(crate) mod rand {
 
     use crate::ScriptEngine;
 use crate::ScriptEnginePlugin;
-use rhai::{Engine, RegisterFn};
+use rhai::{RegisterFn};
     use rand::Rng;
     use rand::distributions::Alphanumeric;
 

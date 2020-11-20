@@ -21,7 +21,7 @@ use crate::{comm::AgentEvent, AgentController};
 use anyhow::{anyhow, Result};
 use std::fmt::{self, Display};
 use tokio::task::JoinHandle;
-use werkflow_scripting::{ Dynamic, ScriptResult};
+use werkflow_scripting::{ Dynamic};
 use werkflow_scripting::{ RegisterFn, Script, ScriptEngine};
 
 #[derive(Default)]

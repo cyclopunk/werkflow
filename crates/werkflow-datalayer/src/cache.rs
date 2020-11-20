@@ -1,7 +1,7 @@
 
-use std::{collections::HashMap, rc::Rc, sync::{Arc, RwLock}};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
-use werkflow_scripting::{Map, RegisterFn, ScriptEngine, ScriptEnginePlugin};
+use werkflow_scripting::{RegisterFn, ScriptEngine, ScriptEnginePlugin};
 use redis::{Commands, Connection, RedisResult};
 use lazy_static::lazy_static;
 

@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use acme2_slim::{cert::SignedCertificate, Account};
 use anyhow::{anyhow, Result};
