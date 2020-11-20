@@ -1,9 +1,9 @@
 pub mod http {
-    use werkflow_scripting::{RegisterResultFn, to_dynamic};
-    use werkflow_scripting::{Dynamic, EvalAltResult, Map};
-    use werkflow_scripting::ScriptEnginePlugin;
-    use log::debug;
     use anyhow::{anyhow, Result};
+    use log::debug;
+    use werkflow_scripting::ScriptEnginePlugin;
+    use werkflow_scripting::{to_dynamic, RegisterResultFn};
+    use werkflow_scripting::{Dynamic, EvalAltResult, Map};
 
     use crate::{threads::AsyncRunner, work::SerMap};
 
@@ -21,7 +21,7 @@ pub mod http {
 
     pub fn get(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {
         debug!("Get {}", url);
-        
+
         let l_url = url.clone();
 
         Ok(AsyncRunner::block_on(async_get(l_url.clone())))
@@ -46,9 +46,7 @@ pub mod http {
     pub fn delete(url: &'static str) -> Result<Dynamic, Box<EvalAltResult>> {
         let l_url = url.clone();
 
-        Ok(AsyncRunner::block_on(async_delete (
-            l_url.clone()
-        )))
+        Ok(AsyncRunner::block_on(async_delete(l_url.clone())))
     }
     pub async fn async_get(url: &str) -> Dynamic {
         let response = reqwest::Client::new()

@@ -1,26 +1,23 @@
-
 use crate::model::AgentConfig;
 use anyhow::Result;
 use clap::App;
 use clap::Arg;
 use log::info;
 use reqwest::Url;
-use std::{path::Path, time::{Duration}};
+use std::{path::Path, time::Duration};
 use tokio::runtime::Builder;
-use werkflow_core::sec::{Authentication, DnsControllerClient, DnsProvider};
 use werkflow_core::sec::ZoneRecord;
+use werkflow_core::sec::{Authentication, DnsControllerClient, DnsProvider};
 use werkflow_core::sec::{CertificateProvider, Zone};
 use werkflow_web::*;
 
-use werkflow_agents::{AgentController};
+use werkflow_agents::AgentController;
 use werkflow_config::ConfigSource;
 use werkflow_core::HttpAction;
 
 mod model;
 
-
 fn main() -> Result<()> {
-
     let runtime = Builder::new()
         .threaded_scheduler()
         .enable_all()
@@ -72,19 +69,21 @@ fn main() -> Result<()> {
         };
         let bind_address = {
             config
-            .web
-            .as_ref()
-            .map(|c| c.bind_address)
-            .map(|c| c.to_string())
-            .unwrap_or("127.0.0.1".into())            
+                .web
+                .as_ref()
+                .map(|c| c.bind_address)
+                .map(|c| c.to_string())
+                .unwrap_or("127.0.0.1".into())
         };
-            
+
         let configure_tls = config
             .web
             .as_ref()
             .map(|o| match o.tls.as_ref() {
                 Some(conf) => conf,
-                None =>  panic!("Missing TLS configuration. Werkflow agents require this configuration.")                
+                None => {
+                    panic!("Missing TLS configuration. Werkflow agents require this configuration.")
+                }
             })
             .expect("to have a tls configuration");
 
@@ -97,8 +96,9 @@ fn main() -> Result<()> {
 
                 let zone = Zone::ByName(dns_config.domain.into());
 
-                let provider = DnsProvider::Cloudflare.new(Authentication::ApiToken(dns_config.api_key.to_string()));
-                
+                let provider = DnsProvider::Cloudflare
+                    .new(Authentication::ApiToken(dns_config.api_key.to_string()));
+
                 provider
                     .add_or_replace(&zone, &ZoneRecord::A(fqdn.clone(), bind_address))
                     .await
@@ -143,7 +143,9 @@ fn main() -> Result<()> {
                 let mut agent_c =
                     AgentController::with_runtime(&format!("{} - {}", &config.name, i), runtime);
 
-                agent_c.add_feature(WebFeature::new(web_config.clone())).await;
+                agent_c
+                    .add_feature(WebFeature::new(web_config.clone()))
+                    .await;
 
                 channels.push(agent_c.start().await)
             }

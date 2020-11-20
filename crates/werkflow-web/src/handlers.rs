@@ -1,24 +1,27 @@
-
-use reqwest::header::{HeaderName, HeaderValue};
-use serde_json::Value;
-use werkflow_scripting::to_dynamic;
-use werkflow_agents::work::CommandHostPlugin;
-use werkflow_datalayer::cache::RemoteStoragePlugin;
 use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
+use lazy_static::lazy_static;
 use log::{debug, info, warn};
 use rand::Rng;
+use reqwest::header::{HeaderName, HeaderValue};
+use serde_json::Value;
+use std::sync::Arc;
 use std::{convert::Infallible, str::FromStr};
-use std::{sync::Arc};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
-use warp::{Buf, Reply, hyper::body::Bytes};
-use warp::{Rejection, http::Response};
-use werkflow_agents::{AgentCommand, AgentController, plugins::http, work::{Workload, WorkloadStatus}};
-use werkflow_scripting::{Script, ScriptEngine, state::HostState};
-use lazy_static::lazy_static;
+use warp::{http::Response, Rejection};
+use warp::{hyper::body::Bytes, Buf, Reply};
+use werkflow_agents::work::CommandHostPlugin;
+use werkflow_agents::{
+    plugins::http,
+    work::{Workload, WorkloadStatus},
+    AgentCommand, AgentController,
+};
+use werkflow_datalayer::cache::RemoteStoragePlugin;
+use werkflow_scripting::to_dynamic;
+use werkflow_scripting::{state::HostState, Script, ScriptEngine};
 
-use crate::{rhtml::Library, model};
+use crate::{model, rhtml::Library};
 
 pub async fn metrics_handler() -> Result<impl Reply, Rejection> {
     use prometheus::Encoder;
@@ -141,72 +144,79 @@ pub async fn stop_agent(controller: AgentController) -> Result<impl warp::Reply,
 }
 
 pub async fn start_agent(controller: AgentController) -> Result<impl warp::Reply, Infallible> {
-    let _ = controller.agent.write().await.command(AgentCommand::Start).await;
+    let _ = controller
+        .agent
+        .write()
+        .await
+        .command(AgentCommand::Start)
+        .await;
 
     Ok(format!("The agent has been started."))
 }
 lazy_static! {
-    pub static ref ENGINE : RwLock<ScriptEngine<'static>> = {
+    pub static ref ENGINE: RwLock<ScriptEngine<'static>> = {
         let mut s = ScriptEngine::with_default_plugins();
         s.add_plugin(http::Plugin)
-        .add_plugin(RemoteStoragePlugin)
-        .add_plugin(CommandHostPlugin);
+            .add_plugin(RemoteStoragePlugin)
+            .add_plugin(CommandHostPlugin);
         RwLock::new(s)
     };
-    pub static ref TEMPLATES: RwLock<Handlebars<'static>> = {
-        RwLock::new(Handlebars::new())
-    };
+    pub static ref TEMPLATES: RwLock<Handlebars<'static>> = { RwLock::new(Handlebars::new()) };
 }
 
 pub async fn process_template(
     template_name: String,
-    body : Bytes,
-    state: Arc<RwLock<HostState>>,    
+    body: Bytes,
+    state: Arc<RwLock<HostState>>,
     library: Arc<RwLock<Library>>,
-    _content_type: String
-) -> Result<impl warp::Reply, Infallible>
-{
-
+    _content_type: String,
+) -> Result<impl warp::Reply, Infallible> {
     let mut engine = ScriptEngine::with_default_plugins();
-    
-    engine.add_plugin(http::Plugin)
+
+    engine
+        .add_plugin(http::Plugin)
         .add_plugin(RemoteStoragePlugin)
         .add_plugin(CommandHostPlugin);
 
     let script_template = match library.read().await.get(&template_name) {
-        Ok(template) => {
-            template
-        }
+        Ok(template) => template,
         Err(err) => {
             warn!("Error getting template {}. Error: {}", template_name, err);
             return Ok(Response::builder()
-            .status(404)
-            .body("Four Oh Four".to_string()));
+                .status(404)
+                .body("Four Oh Four".to_string()));
         }
     };
-    let mut template_writer =  TEMPLATES.write().await;
+    let mut template_writer = TEMPLATES.write().await;
 
     if !template_writer.has_template(&template_name) {
-        if let Err(err) = template_writer.register_template_string(&template_name, &script_template.template) {
-            warn!("Error registering template {}\n Template:\n{}", err, script_template.template);
+        if let Err(err) =
+            template_writer.register_template_string(&template_name, &script_template.template)
+        {
+            warn!(
+                "Error registering template {}\n Template:\n{}",
+                err, script_template.template
+            );
             return Ok(Response::builder()
-            .status(500)
-            .body("We ain't found shit.".to_string()));
+                .status(500)
+                .body("We ain't found shit.".to_string()));
         }
     }
-    
+
     drop(template_writer);
     // lock the state so no other thread can update it while we're processing.
     let mut state = state.write().await;
-    
+
     let bytes = body.bytes().to_vec();
 
-    let body = std::str::from_utf8(&bytes).expect("error converting bytes to &str").to_string();
-    
+    let body = std::str::from_utf8(&bytes)
+        .expect("error converting bytes to &str")
+        .to_string();
+
     engine.scope.push("state", state.clone());
-    engine.engine.on_var(move |name,_,_| {
+    engine.engine.on_var(move |name, _, _| {
         if name == "body" {
-            let json : Value = serde_json::from_str(&body.clone()).unwrap();
+            let json: Value = serde_json::from_str(&body.clone()).unwrap();
             return Ok(Some(to_dynamic(json).unwrap()));
         }
         Ok(None)
@@ -216,57 +226,60 @@ pub async fn process_template(
         "application/json" => engine.scope.push("body", Arc::new(to_dynamic(body).unwrap())),
         _ => engine.scope.push("body", String::from( ammonia::clean(body)))
     };*/
-    
-    let result = engine
 
-        .execute(script_template.script.clone());
+    let result = engine.execute(script_template.script.clone());
 
     match result {
         Ok(result) => {
             *state = engine.scope.get_value("state").unwrap();
 
             drop(state);
-        
+
             // Render the HTML
-            let html = TEMPLATES.read().await
+            let html = TEMPLATES
+                .read()
+                .await
                 .render(&template_name, &result.underlying)
                 .unwrap();
-            
+
             //let clean_html = ammonia::clean(&html).clone();
             let mut builder = Response::builder();
 
             let content_type = match result.underlying.get("content_type") {
                 Some(ct) => ct.to_string(),
-                None => "text/html".to_string()
+                None => "text/html".to_string(),
             };
 
             let val = result.underlying.clone();
-            
-            match val.get("headers"){
+
+            match val.get("headers") {
                 Some(v) => {
-                    let map = v.as_object()
-                            .expect("headers wrong format");
+                    let map = v.as_object().expect("headers wrong format");
                     let headers = builder.headers_mut().unwrap();
-                    for (k,v) in map {
+                    for (k, v) in map {
                         let header = v.clone().to_string();
-                        headers.insert(HeaderName::from_str(&k).unwrap(), HeaderValue::from_str(&header).unwrap());
+                        headers.insert(
+                            HeaderName::from_str(&k).unwrap(),
+                            HeaderValue::from_str(&header).unwrap(),
+                        );
                     }
                 }
                 None => {}
             };
-            
-            Ok(builder
-                .header("Content-Type", content_type)
-                .body(html)) 
+
+            Ok(builder.header("Content-Type", content_type).body(html))
         }
         Err(err) => {
             drop(state);
 
-            let error_id : u128 = rand::thread_rng().gen();
-            warn!("Error running script error: {}\n ErrorId: {} Script:\n{}", err, error_id, script_template.script.body);
+            let error_id: u128 = rand::thread_rng().gen();
+            warn!(
+                "Error running script error: {}\n ErrorId: {} Script:\n{}",
+                err, error_id, script_template.script.body
+            );
             return Ok(Response::builder()
-            .status(500)
-            .body(format!("You done f'd up. ErrorId: {}", error_id)));
+                .status(500)
+                .body(format!("You done f'd up. ErrorId: {}", error_id)));
         }
     }
 }

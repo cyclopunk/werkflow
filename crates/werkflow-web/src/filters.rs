@@ -1,9 +1,9 @@
-use std::{sync::Arc};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use warp::Filter;
 use werkflow_scripting::{state::HostState, Script};
 
-use crate::{AgentController, rhtml::Library, handlers};
+use crate::{handlers, rhtml::Library, AgentController};
 
 fn with_agent(
     agent: AgentController,
@@ -15,8 +15,8 @@ fn with_state(
 ) -> impl Filter<Extract = (Arc<RwLock<HostState>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || state.clone())
 }
-fn with_library (
-    library: Arc<RwLock<Library>>
+fn with_library(
+    library: Arc<RwLock<Library>>,
 ) -> impl Filter<Extract = (Arc<RwLock<Library>>,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || library.clone())
 }
@@ -85,5 +85,3 @@ pub fn templates<'a>(
         .and(warp::header::<String>("content-type"))
         .and_then(handlers::process_template)
 }
-
-

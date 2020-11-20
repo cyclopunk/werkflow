@@ -45,11 +45,10 @@ pub trait ConfigDefinition {
     }
 }
 
-#[derive( Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DnsConfiguration {
     pub api_key: String,
     pub provider: DnsProvider,
-
 }
 
 impl ConfigDefinition for DnsConfiguration {}
@@ -63,7 +62,7 @@ pub struct AgentConfiguration {
 fn test_config_get() {
     let dns = DnsConfiguration {
         api_key: "test".to_string(),
-        provider: DnsProvider::Cloudflare
+        provider: DnsProvider::Cloudflare,
     };
 
     assert_eq!("test", dns.get::<String>("api_key"));

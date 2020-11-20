@@ -1,6 +1,6 @@
-use crate::{work::Workload};
+use crate::work::Workload;
 use core::fmt::Display;
-use std::{sync::Arc, collections::HashMap};
+use std::{collections::HashMap, sync::Arc};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use tokio::sync::RwLock;

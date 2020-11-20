@@ -108,19 +108,18 @@ pub trait ScriptEnginePlugin {
     fn init(&self, host: &mut ScriptEngine);
 }
 
-
 impl Default for ScriptEngine<'_> {
-    fn default() -> Self { 
+    fn default() -> Self {
         ScriptEngine {
             engine: Engine::new(),
-            scope: Scope::new()
-        } 
+            scope: Scope::new(),
+        }
     }
 }
-impl <'a> ScriptEngine <'a> {
-    pub fn with_default_plugins() -> ScriptEngine<'a>  {
+impl<'a> ScriptEngine<'a> {
+    pub fn with_default_plugins() -> ScriptEngine<'a> {
         let mut host = ScriptEngine::default();
-        
+
         host.add_plugin(HostState::new())
             .add_plugin(functions::rand::Plugin);
 
@@ -134,7 +133,7 @@ impl <'a> ScriptEngine <'a> {
         func(&mut self.engine);
     }
 
-    pub fn add_plugin<S: ScriptEnginePlugin>(&mut self, plugin : S) -> &mut ScriptEngine <'a> {
+    pub fn add_plugin<S: ScriptEnginePlugin>(&mut self, plugin: S) -> &mut ScriptEngine<'a> {
         plugin.init(self);
 
         self

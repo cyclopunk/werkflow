@@ -1,6 +1,5 @@
-
-use werkflow_web::WebConfiguration;
 use serde::{Deserialize, Serialize};
+use werkflow_web::WebConfiguration;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct AgentConfig {

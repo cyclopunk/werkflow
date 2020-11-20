@@ -1,11 +1,10 @@
-
-use tokio::sync::RwLockWriteGuard;
-use tokio::sync::RwLockReadGuard;
-use tokio::sync::RwLock;
 use anyhow::{anyhow, Result};
 use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
 use config::Config;
+use tokio::sync::RwLock;
+use tokio::sync::RwLockReadGuard;
+use tokio::sync::RwLockWriteGuard;
 
 use crossbeam_channel::{Receiver, Sender};
 use log::{debug, info};
@@ -18,16 +17,15 @@ use lazy_static::*;
 
 use tokio::runtime::Runtime;
 
-
 use work::{Workload, WorkloadHandle, WorkloadStatus};
 
 use async_trait::async_trait;
 pub mod cfg;
 pub mod comm;
+pub mod plugins;
 pub mod prom;
 pub mod threads;
 pub mod work;
-pub mod plugins;
 
 pub mod channels {
     pub const AGENT_CHANNEL: &'static str = "Agent";
@@ -109,8 +107,8 @@ impl AgentController {
         let handle = self.agent.clone();
 
         let agent = handle.read().await;
-        
-        closure(&agent);                
+
+        closure(&agent);
     }
     pub async fn with_write<F>(&self, closure: F)
     where
@@ -379,7 +377,6 @@ impl Agent {
         work_handle
     }
 }
-
 
 pub type FeatureHandle = Arc<tokio::sync::RwLock<dyn Feature>>;
 #[async_trait]

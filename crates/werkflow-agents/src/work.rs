@@ -1,6 +1,5 @@
-use werkflow_scripting::ScriptEnginePlugin;
-use crate::{cfg::AgentConfiguration, plugins};
 use crate::AsyncRunner;
+use crate::{cfg::AgentConfiguration, plugins};
 use itertools::Itertools;
 use werkflow_config::read_config;
 use werkflow_config::ConfigSource;
@@ -9,20 +8,21 @@ use werkflow_core::{
     sec::{DnsProvider, Zone},
     HttpAction,
 };
+use werkflow_scripting::ScriptEnginePlugin;
 use werkflow_scripting::{Array, ImmutableString};
 
 use log::{error, trace};
 use rand::Rng;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, SerializeStruct, Serializer};
-use std::{collections::HashMap, process::Command, time::Duration, thread};
+use std::{collections::HashMap, process::Command, thread, time::Duration};
 use werkflow_scripting::Map;
 
 use crate::{comm::AgentEvent, AgentController};
 use anyhow::{anyhow, Result};
 use std::fmt::{self, Display};
 use tokio::task::JoinHandle;
-use werkflow_scripting::{ Dynamic};
-use werkflow_scripting::{ RegisterFn, Script, ScriptEngine};
+use werkflow_scripting::Dynamic;
+use werkflow_scripting::{RegisterFn, Script, ScriptEngine};
 
 #[derive(Default)]
 pub struct WorkloadHandle {
@@ -197,19 +197,19 @@ pub struct CommandHost {
 pub struct CommandHostPlugin;
 
 impl ScriptEnginePlugin for CommandHostPlugin {
-    fn init(&self, host: &mut ScriptEngine) { 
-       host.engine.register_type::<CommandHost>()
-       .register_fn("configure", CommandHost::new_ch)
-       .register_fn("configure_web", CommandHost::new_ch_web)
-       .register_fn("add_record", CommandHost::add_a_record)
-       .register_fn("has_container", CommandHost::has_container)
-       .register_fn("start_container", CommandHost::start_container)
-       .register_fn("create_container", CommandHost::create_container)
-       .register_fn("ip", CommandHost::get_ip)
-       .register_fn("wait", CommandHost::wait);
+    fn init(&self, host: &mut ScriptEngine) {
+        host.engine
+            .register_type::<CommandHost>()
+            .register_fn("configure", CommandHost::new_ch)
+            .register_fn("configure_web", CommandHost::new_ch_web)
+            .register_fn("add_record", CommandHost::add_a_record)
+            .register_fn("has_container", CommandHost::has_container)
+            .register_fn("start_container", CommandHost::start_container)
+            .register_fn("create_container", CommandHost::create_container)
+            .register_fn("ip", CommandHost::get_ip)
+            .register_fn("wait", CommandHost::wait);
     }
 }
-
 
 impl CommandHost {
     fn new_ch(filename: ImmutableString) -> CommandHost {
@@ -221,7 +221,7 @@ impl CommandHost {
             config: config.unwrap(),
         }
     }
-    fn wait (secs: i64) {
+    fn wait(secs: i64) {
         thread::sleep(Duration::from_millis(secs as u64));
     }
     fn new_ch_web(url: ImmutableString) -> CommandHost {
@@ -235,12 +235,7 @@ impl CommandHost {
     fn has_container(&mut self, name: &str) -> bool {
         let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
         let n = name.to_string();
-        AsyncRunner::block_on(async move {
-            s.has_container(
-                &n  
-            )
-            .await
-        })
+        AsyncRunner::block_on(async move { s.has_container(&n).await })
     }
     fn create_container(&mut self, name: ImmutableString, image: ImmutableString, env: Array) {
         let s = AsyncRunner::block_on(werkflow_container::ContainerService::default_connect());
@@ -343,10 +338,9 @@ impl CommandHost {
     // add a DNS A record
     fn add_a_record(&mut self, zone: String, host: String, target: String) {
         if let Some(dns_cfg) = &self.config.dns {
-            let provider = DnsProvider::Cloudflare.new(Authentication::ApiToken(dns_cfg.api_key.to_string()));
+            let provider =
+                DnsProvider::Cloudflare.new(Authentication::ApiToken(dns_cfg.api_key.to_string()));
             let result = AsyncRunner::block_on(async move {
-                
-                
                 provider
                     .add_or_replace(&Zone::ByName(zone), &ZoneRecord::A(host, target))
                     .await

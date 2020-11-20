@@ -1,13 +1,11 @@
-
+use async_trait::async_trait;
 use notify::DebouncedEvent;
 use rhtml::Library;
-use std::{fs, net::Ipv4Addr, path::Path, sync::Arc, path::PathBuf};
+use std::{fs, net::Ipv4Addr, path::Path, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
 use werkflow_scripting::state::HostState;
-use async_trait::async_trait;
-
 
 use log::{info, warn};
 use tokio::sync::oneshot::{self, Sender};
@@ -111,16 +109,18 @@ impl Feature for WebFeature {
                     &info.method().to_string(),
                 ])
                 .inc();
-        });                
+        });
 
-       
-
-        let api = agent_status(controller.clone())            
+        let api = agent_status(controller.clone())
             .or(filters::stop_agent(controller.clone()))
             .or(filters::start_agent(controller.clone()))
             .or(filters::start_job(controller.clone()))
             .or(filters::list_jobs(controller.clone()))
-            .or(filters::templates(controller.clone(), state.clone(), library.clone()))
+            .or(filters::templates(
+                controller.clone(),
+                state.clone(),
+                library.clone(),
+            ))
             .or(filters::metrics())
             .with(log);
 
@@ -154,56 +154,45 @@ impl Feature for WebFeature {
             loop {
                 let x = rx2.recv();
                 match x {
-                    Ok(event) => {
-                        match (event) {
-                            DebouncedEvent::NoticeWrite(file) | DebouncedEvent::Write(file) => {
-                                let mut writer = lib.write().await;
+                    Ok(event) => match (event) {
+                        DebouncedEvent::NoticeWrite(file) | DebouncedEvent::Write(file) => {
+                            let mut writer = lib.write().await;
 
-                                writer.update_from_file(file).await;
-                            }
-                            DebouncedEvent::NoticeRemove(_) => {}
-                            DebouncedEvent::Create(_) => {}
-                            DebouncedEvent::Chmod(_) => {}
-                            DebouncedEvent::Remove(file) => {
-                                let name = file.as_path()
-                                    .file_stem()
-                                    .unwrap()
-                                    .to_string_lossy();
-                                
-                                let mut writer = lib.write().await;
+                            writer.update_from_file(file).await;
+                        }
+                        DebouncedEvent::NoticeRemove(_) => {}
+                        DebouncedEvent::Create(_) => {}
+                        DebouncedEvent::Chmod(_) => {}
+                        DebouncedEvent::Remove(file) => {
+                            let name = file.as_path().file_stem().unwrap().to_string_lossy();
 
-                                writer.remove(name.as_ref());
-                            }
-                            DebouncedEvent::Rename(from_path, to_path) => {
-                                let from_name = from_path.as_path()
-                                .file_stem()
-                                .unwrap()
-                                .to_string_lossy();
+                            let mut writer = lib.write().await;
 
-                                let to_name = to_path.as_path()
-                                .file_stem()
-                                .unwrap()
-                                .to_string_lossy();
+                            writer.remove(name.as_ref());
+                        }
+                        DebouncedEvent::Rename(from_path, to_path) => {
+                            let from_name =
+                                from_path.as_path().file_stem().unwrap().to_string_lossy();
 
-                                let mut writer = lib.write().await;
+                            let to_name = to_path.as_path().file_stem().unwrap().to_string_lossy();
 
-                                writer.rename(from_name.as_ref(), 
-                                to_name.as_ref());
-                            }
-                            DebouncedEvent::Rescan => {}
-                            DebouncedEvent::Error(err, path) => {
-                                warn!("Error scanning file: {} for path {:?}", err, path);
-                            }
+                            let mut writer = lib.write().await;
+
+                            writer.rename(from_name.as_ref(), to_name.as_ref());
+                        }
+                        DebouncedEvent::Rescan => {}
+                        DebouncedEvent::Error(err, path) => {
+                            warn!("Error scanning file: {} for path {:?}", err, path);
                         }
                     },
                     Err(e) => {
                         warn!("watch error: {}", e.to_string());
                         break;
-                    },
-                 }
+                    }
+                }
             }
         });
-        rt.spawn(srv);        
+        rt.spawn(srv);
     }
 
     fn name(&self) -> String {
@@ -213,12 +202,9 @@ impl Feature for WebFeature {
     async fn on_event(&mut self, event: AgentEvent) {
         match event {
             AgentEvent::Started => {
-                info!("Got started signal");                
+                info!("Got started signal");
             }
-            AgentEvent::Stopped => {
-
-                info!("Got stop signal")
-            }
+            AgentEvent::Stopped => info!("Got stop signal"),
             AgentEvent::PayloadReceived(_payload) => {
                 // todo
             }

@@ -1,6 +1,5 @@
-
-use crate::{ScriptEngine, ScriptEnginePlugin};
 use crate::HashMap;
+use crate::{ScriptEngine, ScriptEnginePlugin};
 
 /// State for the script host
 #[derive(Clone, Debug)]
@@ -8,10 +7,10 @@ pub struct HostState {
     fields: HashMap<String, String>,
 }
 
-
 impl ScriptEnginePlugin for HostState {
-    fn init(&self, host : &mut ScriptEngine){
-        host.engine.register_type::<HostState>()
+    fn init(&self, host: &mut ScriptEngine) {
+        host.engine
+            .register_type::<HostState>()
             .register_indexer_get(HostState::get_field)
             .register_indexer_set(HostState::set_field)
             .register_indexer_get(HostState::get_field_int)
@@ -24,7 +23,6 @@ impl ScriptEnginePlugin for HostState {
 }
 
 impl HostState {
-    
     pub fn new() -> Self {
         HostState {
             fields: HashMap::new(),

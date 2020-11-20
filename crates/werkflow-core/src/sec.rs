@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use acme2_slim::{cert::SignedCertificate, Account};
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use cloudflare::framework::auth::Credentials;
 use cloudflare::{
     endpoints::{
@@ -11,17 +12,18 @@ use cloudflare::{
     framework::{async_api::ApiClient, async_api::Client, Environment, HttpApiClientConfig},
 };
 use dns::ListDnsRecords;
-use async_trait::async_trait;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum DnsProvider {
-    Cloudflare
+    Cloudflare,
 }
 
 #[async_trait]
-pub trait DnsControllerClient {    
-    fn new_client(auth : Authentication) -> Self where Self: Sized;
+pub trait DnsControllerClient {
+    fn new_client(auth: Authentication) -> Self
+    where
+        Self: Sized;
     async fn get_id(&self, zone: &Zone) -> Result<String>;
     async fn get_record_id(&self, zone: &Zone, record: &ZoneRecord) -> Result<String>;
     async fn delete_record(&self, zone: &Zone, record: &ZoneRecord) -> Result<String>;
@@ -30,7 +32,7 @@ pub trait DnsControllerClient {
 #[derive(Clone, Debug)]
 pub enum Zone {
     ById(String),
-    ByName(String)
+    ByName(String),
 }
 
 #[derive(Clone, Debug)]
@@ -43,19 +45,18 @@ pub enum ZoneRecord {
     Name(String),
 }
 
-
 #[derive(Clone)]
 pub enum Authentication {
     ApiToken(String),
     UserPass(String, String),
-    SslCertificate(String, String)
+    SslCertificate(String, String),
 }
 
 /// Implementation of a DNS provider using Cloudflare
 #[async_trait]
 impl DnsControllerClient for Client {
     //type ClientType = Client;
-  
+
     async fn get_id(&self, zone: &Zone) -> Result<String> {
         match zone {
             Zone::ById(id) => Ok(id.clone()),
@@ -105,7 +106,7 @@ impl DnsControllerClient for Client {
     async fn delete_record(&self, zone: &Zone, record: &ZoneRecord) -> Result<String> {
         let id = self.get_record_id(zone, record).await?;
 
-        let _api_result = self        
+        let _api_result = self
             .request(&DeleteDnsRecord {
                 zone_identifier: &self.get_id(zone).await?,
                 identifier: &id,
@@ -165,20 +166,16 @@ impl DnsControllerClient for Client {
         Ok(response.result.id)
     }
 
-    fn new_client(auth : Authentication) -> Self where Self: Sized {
+    fn new_client(auth: Authentication) -> Self
+    where
+        Self: Sized,
+    {
         let creds = match auth {
-            Authentication::ApiToken(token) => {
-                Credentials::UserAuthToken {
-                    token
-                }
+            Authentication::ApiToken(token) => Credentials::UserAuthToken { token },
+            Authentication::UserPass(email, key) => Credentials::UserAuthKey { email, key },
+            Authentication::SslCertificate(_, _) => {
+                panic!("SslCertificate not supported for Cloudflare Authentication")
             }
-            Authentication::UserPass(email,key) => {
-                Credentials::UserAuthKey {     
-                    email,
-                    key
-                }
-            }
-            Authentication::SslCertificate(_, _) => { panic!("SslCertificate not supported for Cloudflare Authentication")}
         };
 
         let api_client = Client::new(
@@ -194,11 +191,9 @@ impl DnsControllerClient for Client {
 }
 
 impl DnsProvider {
-    pub fn new(&self, auth:Authentication) -> Arc<impl DnsControllerClient> {
+    pub fn new(&self, auth: Authentication) -> Arc<impl DnsControllerClient> {
         let client = match self {
-            DnsProvider::Cloudflare => {
-                Arc::new(Client::new_client(auth))
-            }
+            DnsProvider::Cloudflare => Arc::new(Client::new_client(auth)),
         };
 
         client
@@ -215,12 +210,12 @@ pub struct CertificateProvider {
 /// TODO Add http challenge and integrate with the web feature.CertificateProvider
 
 impl CertificateProvider {
-    pub async fn order_with_dns  (
+    pub async fn order_with_dns(
         &mut self,
         provider: Arc<impl DnsControllerClient>,
         zone: &Zone,
         domains: Vec<String>,
-    ) -> Result<Vec<SignedCertificate>>  {
+    ) -> Result<Vec<SignedCertificate>> {
         let order = self
             .account
             .create_order(&domains)
@@ -280,8 +275,8 @@ impl CertificateProvider {
 
 #[cfg(test)]
 mod test {
+    use super::{CertificateProvider, DnsProvider, Zone};
     use crate::sec::Authentication;
-use super::{CertificateProvider, DnsProvider, Zone};
     use anyhow::{anyhow, Result};
     use config::Config;
     use config::File;
@@ -303,7 +298,9 @@ use super::{CertificateProvider, DnsProvider, Zone};
 
             let certs = p
                 .order_with_dns(
-                    DnsProvider::Cloudflare.new(Authentication::ApiToken(val.into_str()?.to_string())).clone(),
+                    DnsProvider::Cloudflare
+                        .new(Authentication::ApiToken(val.into_str()?.to_string()))
+                        .clone(),
                     &Zone::ByName("autobuild.cloud".into()),
                     domains.clone(),
                 )
