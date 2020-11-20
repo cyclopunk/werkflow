@@ -1,4 +1,5 @@
 
+use reqwest::header::{HeaderName, HeaderValue};
 use serde_json::Value;
 use werkflow_scripting::to_dynamic;
 use werkflow_agents::work::CommandHostPlugin;
@@ -7,7 +8,7 @@ use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
 use log::{debug, info, warn};
 use rand::Rng;
-use std::convert::Infallible;
+use std::{convert::Infallible, str::FromStr, rc::Rc};
 use std::{sync::Arc};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
@@ -232,9 +233,30 @@ pub async fn process_template(
                 .unwrap();
             
             //let clean_html = ammonia::clean(&html).clone();
-        
-            Ok(Response::builder()
-                .header("Content-Type", "text/html")
+            let mut builder = Response::builder();
+
+            let content_type = match result.underlying.get("content_type") {
+                Some(ct) => ct.to_string(),
+                None => "text/html".to_string()
+            };
+
+            let val = result.underlying.clone();
+            
+            match val.get("headers"){
+                Some(v) => {
+                    let map = v.as_object()
+                            .expect("headers wrong format");
+                    let headers = builder.headers_mut().unwrap();
+                    for (k,v) in map {
+                        let header = v.clone().to_string();
+                        headers.insert(HeaderName::from_str(&k).unwrap(), HeaderValue::from_str(&header).unwrap());
+                    }
+                }
+                None => {}
+            };
+            
+            Ok(builder
+                .header("Content-Type", content_type)
                 .body(html)) 
         }
         Err(err) => {

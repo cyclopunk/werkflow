@@ -125,7 +125,7 @@ pub struct ScriptTemplate {
 /// ---!
 /// #{
 ///   "result" : "This the result of the script",
-///   "body" : state["request.body"]
+///   "body" : body
 /// }
 /// ---!
 /// <div>Here's the result: {{result}}</div>

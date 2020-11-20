@@ -1,12 +1,11 @@
 
+use crate::model::AgentConfig;
 use anyhow::Result;
 use clap::App;
 use clap::Arg;
 use log::info;
-use rand::Rng;
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
-use std::{path::Path, time::{Duration, Instant}};
+use std::{path::Path, time::{Duration}};
 use tokio::runtime::Builder;
 use werkflow_core::sec::{Authentication, DnsControllerClient, DnsProvider};
 use werkflow_core::sec::ZoneRecord;
@@ -17,19 +16,8 @@ use werkflow_agents::{AgentController};
 use werkflow_config::ConfigSource;
 use werkflow_core::HttpAction;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct AgentConfig {
-    name: String,
-    number: u16,
-    web: Option<WebConfiguration>,
-    dns: Option<DnsConfiguration>,
-}
+mod model;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct DnsConfiguration {
-    api_key: String,
-    domain: String,
-}
 
 fn main() -> Result<()> {
 
