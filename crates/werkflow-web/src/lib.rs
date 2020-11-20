@@ -1,4 +1,4 @@
-use handlebars::Handlebars;
+
 use notify::DebouncedEvent;
 use rhtml::Library;
 use std::{fs, net::Ipv4Addr, path::Path, sync::Arc, path::PathBuf};

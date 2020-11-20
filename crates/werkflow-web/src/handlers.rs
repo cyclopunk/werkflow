@@ -8,14 +8,14 @@ use anyhow::{anyhow, Result};
 use handlebars::Handlebars;
 use log::{debug, info, warn};
 use rand::Rng;
-use std::{convert::Infallible, str::FromStr, rc::Rc};
+use std::{convert::Infallible, str::FromStr};
 use std::{sync::Arc};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
 use warp::{Buf, Reply, hyper::body::Bytes};
-use warp::{Rejection, Stream, http::Response};
+use warp::{Rejection, http::Response};
 use werkflow_agents::{AgentCommand, AgentController, plugins::http, work::{Workload, WorkloadStatus}};
-use werkflow_scripting::{RegisterFn, Script, ScriptEngine, state::HostState};
+use werkflow_scripting::{Script, ScriptEngine, state::HostState};
 use lazy_static::lazy_static;
 
 use crate::{rhtml::Library, model};
@@ -163,7 +163,7 @@ pub async fn process_template(
     body : Bytes,
     state: Arc<RwLock<HostState>>,    
     library: Arc<RwLock<Library>>,
-    content_type: String
+    _content_type: String
 ) -> Result<impl warp::Reply, Infallible>
 {
 

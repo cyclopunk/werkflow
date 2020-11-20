@@ -2,7 +2,7 @@ use std::{sync::Arc};
 use tokio::sync::RwLock;
 use warp::Filter;
 use werkflow_scripting::{state::HostState, Script};
-use handlebars::{Handlebars};
+
 use crate::{AgentController, rhtml::Library, handlers};
 
 fn with_agent(
