@@ -26,6 +26,7 @@ pub mod plugins;
 pub mod prom;
 pub mod threads;
 pub mod work;
+pub mod discovery;
 
 pub mod channels {
     pub const AGENT_CHANNEL: &'static str = "Agent";
