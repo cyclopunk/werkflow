@@ -11,7 +11,7 @@ use cloudflare::{
     },
     framework::{async_api::ApiClient, async_api::Client, Environment, HttpApiClientConfig},
 };
-use dns::ListDnsRecords;
+use dns::{IpProtocol, ListDnsRecords};
 use log::warn;
 use serde::{Deserialize, Serialize};
 use trust_dns_resolver::AsyncResolver;
@@ -39,6 +39,7 @@ pub enum Zone {
 
 #[derive(Debug, Clone)]
 pub struct Service {
+    pub proto: IpProtocol,
     pub domain: String,
     pub name: String,
     pub priority: u16,
@@ -61,9 +62,16 @@ impl ServiceRegistration for Service {
         let resolver = AsyncResolver::tokio_from_system_conf().await.unwrap();
 
         let resolv = resolver.srv_lookup(service).await.unwrap();
+        
+        let proto = if service.contains("_tcp") {
+            IpProtocol::TCP
+        } else {
+            IpProtocol::UDP
+        };
 
         for n in resolv.iter() {
             rvec.push(Service {
+                proto: proto.clone(),
                 domain: service.to_string(),
                 name: service.to_string(),
                 port: n.port(),
@@ -208,7 +216,7 @@ impl DnsControllerClient for Client {
             ZoneRecord::SRV(name) => dns::CreateDnsRecordParams {
                 name: &name.domain,
                 content: dns::DnsContent::SRV {
-                    content: ServiceRecord::new("_test", "test.com","udp", 1,1,3000),
+                    content: ServiceRecord::new(&name.name, &name.target,name.proto.clone(), 1,1,3000),
                 },
                 priority: None,
                 proxied: None,
@@ -269,7 +277,6 @@ pub struct CertificateProvider {
 
 /// Certificate provider that uses ACME2 to create
 /// certificates with a dns challenge.
-/// TODO Add http challenge and integrate with the web feature.CertificateProvider
 
 impl CertificateProvider {
     pub async fn order_with_dns(
@@ -323,7 +330,6 @@ impl CertificateProvider {
 
         let account = directory
             .account_registration()
-            //.email(email)
             .register()
             .await
             .map_err(|err| anyhow!("Error registering LetsEncrypt directory: {}", err))?;
