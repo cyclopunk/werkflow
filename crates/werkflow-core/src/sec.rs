@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use acme2_slim::{cert::SignedCertificate, Account};
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use cloudflare::framework::auth::Credentials;
+use cloudflare::{framework::auth::Credentials, endpoints::dns::ServiceRecord};
 use cloudflare::{
     endpoints::{
         dns::{self, DeleteDnsRecord, ListDnsRecordsParams},
@@ -12,7 +12,9 @@ use cloudflare::{
     framework::{async_api::ApiClient, async_api::Client, Environment, HttpApiClientConfig},
 };
 use dns::ListDnsRecords;
+use log::warn;
 use serde::{Deserialize, Serialize};
+use trust_dns_resolver::AsyncResolver;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub enum DnsProvider {
@@ -35,11 +37,61 @@ pub enum Zone {
     ByName(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct Service {
+    pub domain: String,
+    pub name: String,
+    pub priority: u16,
+    pub weight: u16,
+    pub port: u16,
+    pub target: String
+}
+
+#[async_trait]
+pub trait ServiceRegistration {
+    async fn lookup(service: &str) -> Vec<Service> where Self: Sized;
+    async fn register<T>(&self, dns: T) where T : DnsControllerClient + Sync + Send;
+}
+
+#[async_trait]
+impl ServiceRegistration for Service {
+    async fn lookup(service: &str) -> Vec<Service> {
+        let mut rvec = Vec::default();
+
+        let resolver = AsyncResolver::tokio_from_system_conf().await.unwrap();
+
+        let resolv = resolver.srv_lookup(service).await.unwrap();
+
+        for n in resolv.iter() {
+            rvec.push(Service {
+                domain: service.to_string(),
+                name: service.to_string(),
+                port: n.port(),
+                priority: n.priority(),
+                target: n.target().to_string(),
+                weight: n.weight(),
+            });
+        }
+        rvec
+    }
+
+    async fn register<T>(&self, dns: T) where T : DnsControllerClient + Sync + Send {
+        let result =  dns.add_or_replace(
+                &Zone::ByName(self.domain.clone()), 
+            &ZoneRecord::SRV(self.clone())
+        ).await;
+
+        if let Err(e) = result {
+            warn!("Error while registreing service: {}", e);
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub enum ZoneRecord {
     A(String, String),
     ProxiedA(String, String),
     TXT(String, String),
+    SRV(Service),
     // already existing records
     Id(String),
     Name(String),
@@ -85,6 +137,7 @@ impl DnsControllerClient for Client {
             ZoneRecord::ProxiedA(name, _) => Some(name.clone()),
             ZoneRecord::TXT(name, _) => Some(name.clone()),
             ZoneRecord::Name(name) => Some(name.clone()),
+            ZoneRecord::SRV(svc) => Some(svc.name.clone())
         };
 
         let api_result = self
@@ -147,6 +200,15 @@ impl DnsControllerClient for Client {
                 name: &name,
                 content: dns::DnsContent::TXT {
                     content: txt.into(),
+                },
+                priority: None,
+                proxied: None,
+                ttl: None,
+            },
+            ZoneRecord::SRV(name) => dns::CreateDnsRecordParams {
+                name: &name.domain,
+                content: dns::DnsContent::SRV {
+                    content: ServiceRecord::new("_test", "test.com","udp", 1,1,3000),
                 },
                 priority: None,
                 proxied: None,
