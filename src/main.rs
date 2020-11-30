@@ -32,6 +32,30 @@ fn main() -> Result<()> {
             .author("Adam Shaw <discourse@gmail.com>")
             .about("Workflow swiss-army knife")
             .arg(
+                Arg::with_name("name")
+                    .short("n")
+                    .long("name")
+                    .value_name("AGENTNAME")
+                    .help("Name of the agent")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("domain")
+                    .short("d")
+                    .long("domain")
+                    .value_name("DOMAINNAME")
+                    .help("Domain name")
+                    .takes_value(true),
+            )
+            .arg(
+                Arg::with_name("dns-api-key")
+                    .short("k")
+                    .long("dns-key")
+                    .value_name("KEY")
+                    .help("DNS API Key")
+                    .takes_value(true),
+            )
+            .arg(
                 Arg::with_name("config")
                     .value_name("URL/FILENAME")
                     .help("URL or Filename for the agent configuration.")
@@ -92,12 +116,31 @@ fn main() -> Result<()> {
         // certificate creation through that.
         if !Path::new(&configure_tls.certificate_path).exists() {
             if let Some(dns_config) = config.dns {
-                let fqdn = format!("{}.{}", config.name, dns_config.domain);
+                
+                let name = if let Some(name) = matches.value_of("name") {
+                    name.to_string()
+                } else {
+                    config.name.to_string()
+                };
 
-                let zone = Zone::ByName(dns_config.domain.into());
+                let domain = if let Some(domain) = matches.value_of("domain") {
+                    domain.to_string()
+                } else {
+                    dns_config.domain.to_string()
+                };
+
+                let key = if let Some(dns_key) = matches.value_of("dns-api-key") {
+                    dns_key.to_string()
+                } else {
+                    dns_config.api_key.to_string()
+                };
+
+                let fqdn = format!("{}.{}", name, domain);
+
+                let zone = Zone::ByName(domain);
 
                 let provider = DnsProvider::Cloudflare
-                    .new(Authentication::ApiToken(dns_config.api_key.to_string()));
+                    .new(Authentication::ApiToken(key));
 
                 provider
                     .add_or_replace(&zone, &ZoneRecord::A(fqdn.clone(), bind_address))
