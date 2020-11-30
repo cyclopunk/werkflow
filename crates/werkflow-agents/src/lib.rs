@@ -1,3 +1,5 @@
+use tokio::time::delay_for;
+use core::time::Duration;
 use anyhow::{anyhow, Result};
 use channels::AGENT_CHANNEL;
 use comm::{AgentEvent, Hub};
@@ -214,6 +216,23 @@ impl AgentController {
         self.signal = Some(rx);
 
         tx
+    }
+
+    pub async fn schedule<T>(&self, interval : Duration, func : T) where T : Fn() -> () + Clone + Send + 'static {
+        let handle = {
+            let agent = self.agent.read().await;
+            agent.runtime.handle().clone()
+        };
+        
+        let f = func.clone();
+
+        handle.spawn(async move {
+            info!("Starting scheduled function");
+            loop {
+                f.clone()();
+                delay_for(interval).await;
+            }
+        });
     }
 }
 

@@ -614,6 +614,7 @@ dependencies = [
 [[package]]
 name = "cloudflare"
 version = "0.6.6"
+source = "git+https://github.com/cyclopunk/cloudflare-rs#8440aa5dc4c48d64404f519cdb49f46b0c03b274"
 dependencies = [
  "anyhow",
  "async-trait",

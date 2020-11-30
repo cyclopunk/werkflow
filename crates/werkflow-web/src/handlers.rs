@@ -5,7 +5,7 @@ use log::{debug, info, warn};
 use rand::Rng;
 use reqwest::header::{HeaderName, HeaderValue};
 use serde_json::Value;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use std::{convert::Infallible, str::FromStr};
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
@@ -162,6 +162,44 @@ lazy_static! {
         RwLock::new(s)
     };
     pub static ref TEMPLATES: RwLock<Handlebars<'static>> = { RwLock::new(Handlebars::new()) };
+}
+
+pub async fn schedule(
+    controller: AgentController,
+    body: Bytes,
+    state: Arc<RwLock<HostState>>,
+    _content_type: String,
+) -> Result<impl warp::Reply, Infallible> {
+    let mut engine = ScriptEngine::with_default_plugins();
+
+    engine
+        .add_plugin(http::Plugin)
+        .add_plugin(RemoteStoragePlugin)
+        .add_plugin(CommandHostPlugin);
+
+    let bytes = body.bytes().to_vec();
+
+    let body = std::str::from_utf8(&bytes)
+        .expect("error converting bytes to &str")
+        .to_string();
+
+    let state = state.clone().read().await.clone();
+    
+    controller.schedule(Duration::from_secs(1),  move || {
+        let mut engine = ScriptEngine::with_default_plugins();
+
+        engine
+            .add_plugin(http::Plugin)
+            .add_plugin(RemoteStoragePlugin)
+            .add_plugin(CommandHostPlugin);
+    
+        engine.scope.push("state", state.clone());
+
+        let _result = engine.execute(Script::with_name("scheduled script", &body));
+
+    }).await;
+
+    Ok("Scheduled")
 }
 
 pub async fn process_template(
