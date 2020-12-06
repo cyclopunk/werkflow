@@ -18,7 +18,7 @@ use werkflow_agents::{
     AgentCommand, AgentController,
 };
 use werkflow_datalayer::cache::RemoteStoragePlugin;
-use werkflow_scripting::to_dynamic;
+use werkflow_scripting::{scheduler::ScriptScheduler, to_dynamic};
 use werkflow_scripting::{state::HostState, Script, ScriptEngine};
 
 use crate::{model, rhtml::Library};
@@ -166,6 +166,7 @@ lazy_static! {
 
 pub async fn schedule(
     controller: AgentController,
+    scheduler: Arc<RwLock<ScriptScheduler>>,
     body: Bytes,
     state: Arc<RwLock<HostState>>,
     _content_type: String,
@@ -183,6 +184,8 @@ pub async fn schedule(
         .expect("error converting bytes to &str")
         .to_string();
 
+    // this gets a snapshot of state - should move this to the closure at some
+    // point using AsyncRunner
     let state = state.clone().read().await.clone();
     
     controller.schedule(Duration::from_secs(1),  move || {
@@ -197,6 +200,7 @@ pub async fn schedule(
 
         let _result = engine.execute(Script::with_name("scheduled script", &body));
 
+        // todo gotta do something with these results
     }).await;
 
     Ok("Scheduled")

@@ -5,7 +5,7 @@ use std::{fs, net::Ipv4Addr, path::Path, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 use werkflow_agents::cfg::ConfigDefinition;
 use werkflow_agents::prom::{self, register_custom_metrics};
-use werkflow_scripting::state::HostState;
+use werkflow_scripting::{state::HostState, scheduler::ScriptScheduler};
 
 use log::{info, warn};
 use tokio::sync::oneshot::{self, Sender};
@@ -94,6 +94,7 @@ impl Feature for WebFeature {
             .expect("template library to be created");
 
         let library = Arc::new(RwLock::new(library));
+        let scheduler = Arc::new(RwLock::new(ScriptScheduler::default()));
 
         self.shutdown = Some(tx);
 
@@ -116,6 +117,11 @@ impl Feature for WebFeature {
             .or(filters::start_agent(controller.clone()))
             .or(filters::start_job(controller.clone()))
             .or(filters::list_jobs(controller.clone()))
+            .or(filters::schedule(
+                controller.clone(),
+                state.clone(),
+                scheduler.clone()
+            ))
             .or(filters::templates(
                 controller.clone(),
                 state.clone(),

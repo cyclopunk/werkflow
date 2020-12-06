@@ -17,6 +17,7 @@ futures-util = "0.3.4"
 
 rhai = { version = "0.19.3", features = ["serde","sync"] } 
 rand = "0.7.3"
+futures = "*"
 
 [dev-dependencies]
 pretty_env_logger = "0.4"

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 mod functions;
 pub mod state;
+pub mod scheduler;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub struct ScriptIdentifier {

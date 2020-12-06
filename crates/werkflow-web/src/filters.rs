@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use warp::Filter;
-use werkflow_scripting::{state::HostState, Script};
+use werkflow_scripting::{Script, state::HostState, scheduler::ScriptScheduler};
 
 use crate::{handlers, rhtml::Library, AgentController};
 
@@ -9,6 +9,11 @@ fn with_agent(
     agent: AgentController,
 ) -> impl Filter<Extract = (AgentController,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || agent.clone())
+}
+fn with_scheduler(
+    scheduler: Arc<RwLock<ScriptScheduler>>,
+) -> impl Filter<Extract = (Arc<RwLock<ScriptScheduler>>,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || scheduler.clone())
 }
 fn with_state(
     state: Arc<RwLock<HostState>>,
@@ -84,4 +89,21 @@ pub fn templates<'a>(
         .and(with_library(library.clone()))
         .and(warp::header::<String>("content-type"))
         .and_then(handlers::process_template)
+}
+
+
+
+pub fn schedule<'a>(
+    agent: AgentController,
+    state: Arc<RwLock<HostState>>,
+    scheduler: Arc<RwLock<ScriptScheduler>>,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone + 'a {
+    warp::path!("content")
+        .and(warp::any())
+        .and(with_agent(agent))
+        .and(with_scheduler(scheduler))
+        .and(warp::filters::body::bytes())
+        .and(with_state(state))
+        .and(warp::header::<String>("content-type"))
+        .and_then(handlers::schedule)
 }

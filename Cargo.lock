@@ -4399,6 +4399,7 @@ dependencies = [
 name = "werkflow-scripting"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "futures-util",
  "log 0.4.11",
  "pretty_env_logger",
