@@ -5,7 +5,6 @@ use tokio::{runtime::{Handle, Runtime}, sync::oneshot::Sender, task::JoinHandle}
 use crate::Script;
 
 pub struct ScriptScheduler {
-    engine : Engine,
     runtime : Handle,
     cancel_tokens: HashMap<u128, Sender<()>>
 } 
@@ -13,7 +12,6 @@ pub struct ScriptScheduler {
 impl Default for ScriptScheduler {
     fn default() -> Self {
         ScriptScheduler {
-            engine: Engine::new(),
             runtime: tokio::runtime::Handle::current(),
             cancel_tokens: HashMap::default(),
         }
